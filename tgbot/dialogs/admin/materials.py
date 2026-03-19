@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 # Getters
 # ---------------------------------------------------------------------------
 
+async def get_material_subjects_data(**kwargs) -> dict:
+    return {"subjects": [(label, slug) for slug, label in SUBJECT_LABELS.items()]}
+
+
 async def get_material_upload_data(dialog_manager: DialogManager, **kwargs) -> dict:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     subject = dialog_manager.dialog_data.get("material_subject")
@@ -95,7 +99,7 @@ def get_windows() -> list:
             Button(Const("🔙 Назад"), id="back_menu",
                    on_click=lambda c, b, d: d.switch_to(AdminSG.menu)),
             state=AdminSG.materials_subjects,
-            getter=lambda **kw: {"subjects": [(label, slug) for slug, label in SUBJECT_LABELS.items()]},
+            getter=get_material_subjects_data,
         ),
         Window(
             Format(
