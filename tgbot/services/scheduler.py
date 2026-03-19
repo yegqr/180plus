@@ -11,6 +11,10 @@ from infrastructure.database.repo.requests import RequestsRepo
 
 logger = logging.getLogger(__name__)
 
+# Module-level refs so job functions can access them without being pickled as kwargs
+_bot: Bot | None = None
+_session_pool: async_sessionmaker | None = None
+
 
 def _build_jobstore(config: Any) -> dict:
     """Returns APScheduler jobstores dict. Uses Redis when configured, otherwise in-memory."""
@@ -31,9 +35,9 @@ def _build_jobstore(config: Any) -> dict:
     return {}
 
 
-async def check_and_approve_requests(bot: Bot, session_pool: async_sessionmaker) -> None:
+async def check_and_approve_requests() -> None:
     """Periodic task to approve join requests older than 3 minutes."""
-    async with session_pool() as session:
+    async with _session_pool() as session:
         repo = RequestsRepo(session)
         old_requests = await repo.join_requests.get_old_requests(minutes=3)
         if not old_requests:
@@ -43,7 +47,7 @@ async def check_and_approve_requests(bot: Bot, session_pool: async_sessionmaker)
         for row in old_requests:
             user_id, chat_id = row
             try:
-                await bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
+                await _bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
                 await repo.join_requests.delete_request(user_id, chat_id)
                 approved_count += 1
             except Exception as e:
@@ -55,27 +59,33 @@ async def check_and_approve_requests(bot: Bot, session_pool: async_sessionmaker)
 
 
 async def setup_scheduler(bot: Bot, session_pool: async_sessionmaker, config: Any = None) -> None:
+    global _bot, _session_pool
+    _bot = bot
+    _session_pool = session_pool
+
+    import tgbot.services.daily as daily_module
+    daily_module._bot = bot
+    daily_module._session_pool = session_pool
+
     jobstores = _build_jobstore(config)
     scheduler = AsyncIOScheduler(jobstores=jobstores if jobstores else None)
+    daily_module._scheduler = scheduler
 
     scheduler.add_job(
         check_and_approve_requests,
         "interval",
         seconds=60,
-        kwargs={"bot": bot, "session_pool": session_pool},
     )
 
-    from tgbot.services.daily import schedule_daily_lottery
     scheduler.add_job(
-        schedule_daily_lottery,
+        daily_module.schedule_daily_lottery,
         "cron",
         hour=7,
         minute=0,
-        kwargs={"scheduler": scheduler, "bot": bot, "session_pool": session_pool},
     )
 
     scheduler.start()
     logger.info("Scheduler started! Checking join requests every 60s.")
 
     # Run lottery on startup if not already run today
-    await schedule_daily_lottery(scheduler, bot, session_pool)
+    await daily_module.schedule_daily_lottery()

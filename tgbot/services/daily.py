@@ -23,6 +23,11 @@ from tgbot.misc.utils import get_question_images
 
 logger = logging.getLogger(__name__)
 
+# Module-level refs set by setup_scheduler — avoids passing non-picklable objects as job kwargs
+_bot: "Bot | None" = None
+_session_pool: "async_sessionmaker | None" = None
+_scheduler: Any = None
+
 _HOME_BTN = InlineKeyboardButton(text="🏠 В головне меню", callback_data="daily:menu:home")
 
 
@@ -75,8 +80,10 @@ async def _send_daily_to_user(
         return False
 
 
-async def broadcast_daily_question(bot: Bot, session_pool: async_sessionmaker) -> None:
+async def broadcast_daily_question() -> None:
     """Selects a random question and broadcasts it to all subscribed users."""
+    bot = _bot
+    session_pool = _session_pool
     try:
         async with session_pool() as session:
             repo = RequestsRepo(session)
@@ -131,8 +138,11 @@ def _pick_send_time(now: datetime) -> datetime | None:
     return None  # window fully over
 
 
-async def schedule_daily_lottery(scheduler: Any, bot: Bot, session_pool: async_sessionmaker) -> None:
+async def schedule_daily_lottery(scheduler: Any = None, bot: "Bot | None" = None, session_pool: "async_sessionmaker | None" = None) -> None:
     """Runs daily to decide IF and WHEN to send the challenge (50 % lottery)."""
+    bot = bot or _bot
+    session_pool = session_pool or _session_pool
+    scheduler = scheduler or _scheduler
     async with session_pool() as session:
         repo = RequestsRepo(session)
 
@@ -170,5 +180,4 @@ async def schedule_daily_lottery(scheduler: Any, bot: Bot, session_pool: async_s
             broadcast_daily_question,
             "date",
             run_date=target_time,
-            kwargs={"bot": bot, "session_pool": session_pool},
         )
