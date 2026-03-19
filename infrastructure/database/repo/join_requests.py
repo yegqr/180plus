@@ -15,7 +15,6 @@ class JoinRequestsRepo(BaseRepo):
             user_id=user_id, chat_id=chat_id
         ).on_conflict_do_nothing()
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def get_all_requests(self) -> list[tuple[int, int]]:
         stmt = select(PendingJoinRequest.user_id, PendingJoinRequest.chat_id)
@@ -28,12 +27,10 @@ class JoinRequestsRepo(BaseRepo):
             PendingJoinRequest.chat_id == chat_id,
         )
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def clear_all(self) -> None:
         stmt = delete(PendingJoinRequest)
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def get_old_requests(self, minutes: int = 3) -> list[tuple[int, int]]:
         """Returns (user_id, chat_id) for requests older than `minutes`."""

@@ -32,12 +32,20 @@ class DbConfig:
     database: str
     port: int = 5432
 
-    # For SQLAlchemy
+    def __post_init__(self) -> None:
+        if not self.host:
+            raise ValueError("DB_HOST must not be empty")
+        if not self.user:
+            raise ValueError("POSTGRES_USER must not be empty")
+        if not self.database:
+            raise ValueError("POSTGRES_DB must not be empty")
+        if not (1 <= self.port <= 65535):
+            raise ValueError(f"DB_PORT must be 1-65535, got {self.port}")
+
     def construct_sqlalchemy_url(self, driver: str = "asyncpg", host: str | None = None, port: int | None = None) -> str:
         """
         Constructs and returns a SQLAlchemy URL for this database configuration.
         """
-        # TODO: If you're using SQLAlchemy, move the import to the top of the file!
         from sqlalchemy.engine.url import URL
 
         if not host:
@@ -52,7 +60,7 @@ class DbConfig:
             port=port,
             database=self.database,
         )
-        return uri.render_as_string(hide_password=False)
+        return uri.render_as_string(hide_password=True)
 
     @staticmethod
     def from_env(env: Env) -> DbConfig:
@@ -78,6 +86,12 @@ class TgBot:
     token: str
     admin_ids: list[int]
     use_redis: bool
+
+    def __post_init__(self) -> None:
+        if not self.token:
+            raise ValueError("BOT_TOKEN must not be empty")
+        if not self.admin_ids:
+            raise ValueError("ADMINS must contain at least one admin ID")
 
     @staticmethod
     def from_env(env: Env) -> TgBot:
@@ -184,8 +198,6 @@ def load_config(path: str = None) -> Config:
     :return: Config object with attributes set as per environment variables.
     """
 
-    # Create an Env object.
-    # The Env object will be used to read environment variables.
     env = Env()
     env.read_env(path)
 

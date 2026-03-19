@@ -38,23 +38,19 @@ class UserRepo(BaseRepo):
         ).returning(User)
 
         result = await self.session.execute(insert_stmt)
-        await self.session.commit()
         return result.scalar_one()
 
     async def update_subject(self, user_id: int, subject: str) -> None:
         stmt = update(User).where(User.user_id == user_id).values(selected_subject=subject)
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def promote_admin(self, user_id: int) -> None:
         stmt = update(User).where(User.user_id == user_id).values(is_admin=True)
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def demote_admin(self, user_id: int) -> None:
         stmt = update(User).where(User.user_id == user_id).values(is_admin=False)
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def get_admins(self) -> Sequence[User]:
         stmt = select(User).where(User.is_admin == True)  # noqa: E712
@@ -88,12 +84,10 @@ class UserRepo(BaseRepo):
     async def update_daily_sub(self, user_id: int, enabled: bool) -> None:
         stmt = update(User).where(User.user_id == user_id).values(daily_sub=enabled)
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def update_user_settings(self, user_id: int, settings: dict[str, Any]) -> None:
         stmt = update(User).where(User.user_id == user_id).values(settings=settings)
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def get_users_with_settings(self, user_ids: list[int]) -> Sequence[User]:
         """Returns full User objects for the given IDs (includes settings for per-thread broadcasts)."""

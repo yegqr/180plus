@@ -14,7 +14,6 @@ class StatsRepo(BaseRepo):
         from sqlalchemy.dialects.postgresql import insert
         stmt = insert(JoinStat).values(user_id=user_id, source=source)
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def get_weekly_stats(self, week_offset: int = 0) -> list[dict[str, Any]]:
         """

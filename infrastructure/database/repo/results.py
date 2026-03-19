@@ -58,7 +58,6 @@ class ResultRepo:
                 duration=duration,
             )
         )
-        await self.session.commit()
 
     async def save_random_result(
         self, user_id: int, subject: str, question_id: int, points: int = 1
@@ -66,7 +65,6 @@ class ResultRepo:
         self.session.add(
             RandomResult(user_id=user_id, subject=subject, question_id=question_id, points=points)
         )
-        await self.session.commit()
 
     async def get_completed_sessions(
         self, user_id: int, subject: str, year: int

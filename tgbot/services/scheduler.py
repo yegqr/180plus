@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
@@ -9,6 +10,25 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from infrastructure.database.repo.requests import RequestsRepo
 
 logger = logging.getLogger(__name__)
+
+
+def _build_jobstore(config: Any) -> dict:
+    """Returns APScheduler jobstores dict. Uses Redis when configured, otherwise in-memory."""
+    if config and config.tg_bot.use_redis:
+        try:
+            from apscheduler.jobstores.redis import RedisJobStore
+            redis_cfg = config.redis
+            jobstore = RedisJobStore(
+                host=redis_cfg.redis_host,
+                port=redis_cfg.redis_port,
+                password=redis_cfg.redis_pass or None,
+                db=1,  # separate DB from FSM storage (which uses db=0)
+            )
+            logger.info("Scheduler: using Redis job store.")
+            return {"default": jobstore}
+        except Exception as e:
+            logger.warning(f"Scheduler: Redis job store unavailable ({e}), falling back to memory.")
+    return {}
 
 
 async def check_and_approve_requests(bot: Bot, session_pool: async_sessionmaker) -> None:
@@ -30,11 +50,13 @@ async def check_and_approve_requests(bot: Bot, session_pool: async_sessionmaker)
                 logger.error(f"Failed to auto-approve request for user {user_id} in chat {chat_id}: {e}")
 
         if approved_count > 0:
+            await session.commit()
             logger.info(f"Auto-approved {approved_count} join requests.")
 
 
-async def setup_scheduler(bot: Bot, session_pool: async_sessionmaker) -> None:
-    scheduler = AsyncIOScheduler()
+async def setup_scheduler(bot: Bot, session_pool: async_sessionmaker, config: Any = None) -> None:
+    jobstores = _build_jobstore(config)
+    scheduler = AsyncIOScheduler(jobstores=jobstores if jobstores else None)
 
     scheduler.add_job(
         check_and_approve_requests,

@@ -28,14 +28,12 @@ class LogsRepo(BaseRepo):
             session_id=session_id,
         )
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def add_logs_batch(self, logs: list[dict]) -> None:
         if not logs:
             return
         stmt = insert(UserActionLog).values(logs)
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def get_question_history(
         self, user_id: int, question_id: int, limit: int = 5

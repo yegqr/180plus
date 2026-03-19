@@ -23,7 +23,6 @@ class MaterialRepo(BaseRepo):
             )
         )
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def clear_materials(self, subject: str) -> None:
         stmt = (
@@ -32,4 +31,3 @@ class MaterialRepo(BaseRepo):
             .values(images=[])
         )
         await self.session.execute(stmt)
-        await self.session.commit()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,9 @@ if TYPE_CHECKING:
     from infrastructure.database.repo.requests import RequestsRepo
 
 logger = logging.getLogger(__name__)
+
+# Per-user locks to prevent concurrent topic creation for the same user
+_topic_locks: dict[int, asyncio.Lock] = {}
 
 
 class TopicManager:
@@ -65,6 +69,25 @@ class TopicManager:
         rename_if_exists: bool = False,
     ) -> bool:
         """Ensures all subject topics exist. Returns True if new topics were created."""
+        # setdefault is atomic in CPython — no TOCTOU between check and insert
+        lock = _topic_locks.setdefault(user.user_id, asyncio.Lock())
+        async with lock:
+            result = await cls._ensure_topics_locked(bot, user, repo, dialog_manager, rename_if_exists)
+            # Release memory: once topics are saved, the lock is no longer needed
+            if user.settings.get("topic_ids"):
+                _topic_locks.pop(user.user_id, None)
+            return result
+
+    @classmethod
+    async def _ensure_topics_locked(
+        cls,
+        bot: Bot,
+        user: User,
+        repo: RequestsRepo,
+        dialog_manager: DialogManager,
+        rename_if_exists: bool = False,
+    ) -> bool:
+        """Inner implementation — runs under the per-user lock."""
         topic_ids = user.settings.get("topic_ids")
 
         if not topic_ids:

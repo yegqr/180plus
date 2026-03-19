@@ -24,6 +24,7 @@ class BulkUploadService:
         self.bot = bot
         self.repo = repo
         self.config = config
+        self._gemini_sem = asyncio.Semaphore(3)  # max 3 concurrent Gemini API calls
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -179,7 +180,7 @@ class BulkUploadService:
         api_key = db_key or self.config.misc.gemini_api_key
         if api_key and image_data_list:
             asyncio.create_task(
-                self.generate_and_save_explanation(
+                self._gemini_task(
                     api_key=api_key,
                     images=image_data_list,
                     subject=subject,
@@ -221,6 +222,11 @@ class BulkUploadService:
     # Background Gemini generation
     # ------------------------------------------------------------------
 
+    async def _gemini_task(self, **kwargs: Any) -> None:
+        """Wrapper that acquires the semaphore before calling Gemini."""
+        async with self._gemini_sem:
+            await self.generate_and_save_explanation(**kwargs)
+
     async def generate_and_save_explanation(
         self,
         api_key: str,
@@ -250,5 +256,6 @@ class BulkUploadService:
                     await q_repo.update_explanation(target_q.id, explanation)
                     if categories:
                         await q_repo.update_categories(target_q.id, categories)
+                    await session.commit()
         except Exception as e:
             logger.error(f"Gemini background error for Q#{q_number}: {e}")

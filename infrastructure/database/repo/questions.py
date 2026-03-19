@@ -73,7 +73,6 @@ class QuestionRepo:
                     categories=kwargs.get("categories"),
                 )
             )
-        await self.session.commit()
 
     async def update_explanation(self, question_id: int, text: str) -> None:
         stmt = select(Question).where(Question.id == question_id)
@@ -81,16 +80,14 @@ class QuestionRepo:
         question = result.scalar_one_or_none()
         if question:
             question.explanation = text
-            await self.session.commit()
-
+    
     async def update_categories(self, question_id: int, categories: list[str]) -> None:
         stmt = select(Question).where(Question.id == question_id)
         result = await self.session.execute(stmt)
         question = result.scalar_one_or_none()
         if question:
             question.categories = categories
-            await self.session.commit()
-
+    
     async def get_questions_ids_by_subject(self, subject: str) -> list[int]:
         """Returns question IDs for a subject, ordered by year/session/number."""
         stmt = (
@@ -145,8 +142,7 @@ class QuestionRepo:
         question = await self.get_question_by_id(question_id)
         if question:
             await self.session.delete(question)
-            await self.session.commit()
-
+    
     async def delete_questions_by_session(
         self, subject: str, year: int, session: str
     ) -> None:
@@ -156,7 +152,6 @@ class QuestionRepo:
             Question.session == session,
         )
         await self.session.execute(stmt)
-        await self.session.commit()
 
     async def update_session_metadata(
         self,
@@ -184,7 +179,15 @@ class QuestionRepo:
             .values(**values)
         )
         await self.session.execute(stmt)
-        await self.session.commit()
+
+    async def get_questions_by_ids(self, question_ids: list[int]) -> list[Question]:
+        """Fetches multiple questions in a single query. Preserves input order."""
+        if not question_ids:
+            return []
+        stmt = select(Question).where(Question.id.in_(question_ids))
+        result = await self.session.execute(stmt)
+        rows = {q.id: q for q in result.scalars().all()}
+        return [rows[qid] for qid in question_ids if qid in rows]
 
     async def get_random_question(
         self, subjects: list[str], q_type: str | None = "choice"

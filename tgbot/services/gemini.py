@@ -87,7 +87,10 @@ class GeminiService:
                 )
                 return response.text
 
-            result_text = await asyncio.get_running_loop().run_in_executor(None, _sync_generate)
+            result_text = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(None, _sync_generate),
+                timeout=30.0,
+            )
 
             clean = result_text.replace("```json", "").replace("```", "").strip()
             try:
@@ -96,6 +99,9 @@ class GeminiService:
                 logger.error(f"JSON Parse Error: {result_text}")
                 return {"explanation": result_text, "categories": []}
 
+        except asyncio.TimeoutError:
+            logger.error("Gemini API timed out after 30s")
+            return _EMPTY_RESULT
         except Exception as e:
             logger.error(f"Gemini generation error: {e}")
             return _EMPTY_RESULT

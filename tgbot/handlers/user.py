@@ -49,7 +49,7 @@ async def user_start(message: Message, dialog_manager: DialogManager, user: User
                     caption="🕹️ Глянь коротке відео про те, як використати бота на 100%!"
                 )
             except Exception:
-                pass
+                logger.warning("Failed to send onboarding video on /start", exc_info=True)
 
     # Remove any existing reply keyboard silently
     tmp_msg = await message.answer("...", reply_markup=ReplyKeyboardRemove())
@@ -95,7 +95,7 @@ async def user_help(message: Message, dialog_manager: DialogManager, repo: Reque
             )
             return
         except Exception:
-            pass
+            logger.warning("Failed to send onboarding video on /help", exc_info=True)
             
     await message.answer(
         "👋 <b>Привіт! Це NMT Bot.</b>\n\n"
@@ -132,11 +132,11 @@ async def on_click_start_menu(callback: CallbackQuery, dialog_manager: DialogMan
                 caption="🕹️ Глянь коротке відео про те, як використати бота на 100%!"
             )
         except Exception:
-            logger.debug("Failed to send onboarding video in start_menu callback")
+            logger.warning("Failed to send onboarding video in start_menu callback", exc_info=True)
 
     try:
         await dialog_manager.start(MainSG.menu, mode=StartMode.RESET_STACK, show_mode=ShowMode.SEND)
     except Exception:
-        logger.debug("Failed to start main menu dialog (user may have blocked the bot)")
+        logger.warning("Failed to start main menu dialog", exc_info=True)
         
     await callback.answer()

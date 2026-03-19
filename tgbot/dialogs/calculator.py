@@ -354,8 +354,8 @@ async def on_kse_question_sent(message: Message, widget: Any, dialog_manager: Di
                     text=context_info
                 )
         except Exception:
-            pass
-            
+            logger.warning(f"Failed to notify admin {admin_id} about KSE question", exc_info=True)
+
     await message.answer("✅ Дякуємо! Ваше питання надіслано координаторці KSE. Очікуйте на відповідь!")
     await dialog_manager.switch_to(CalculatorSG.main)
 

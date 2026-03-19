@@ -20,4 +20,3 @@ class SettingsRepo(BaseRepo):
             set_=dict(value=value),
         )
         await self.session.execute(update_stmt)
-        await self.session.commit()

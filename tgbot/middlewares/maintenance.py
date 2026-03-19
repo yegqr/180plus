@@ -1,70 +1,70 @@
+from __future__ import annotations
+
 import logging
-from typing import Callable, Dict, Any, Awaitable
+import time
+from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery, TelegramObject, User
+from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from infrastructure.database.repo.requests import RequestsRepo
 
 logger = logging.getLogger(__name__)
 
+_CACHE_TTL = 30.0  # seconds — how long to cache the maintenance_mode setting
+
+
 class MaintenanceMiddleware(BaseMiddleware):
+    """
+    Blocks non-admin users when maintenance_mode is enabled.
+
+    The maintenance_mode DB setting is cached for _CACHE_TTL seconds to avoid
+    a DB round-trip on every incoming event.
+    """
+
+    def __init__(self) -> None:
+        self._cached_mode: bool = False
+        self._cache_ts: float = 0.0
+
+    async def _get_maintenance_mode(self, repo: RequestsRepo) -> bool:
+        now = time.monotonic()
+        if now - self._cache_ts > _CACHE_TTL:
+            value = await repo.settings.get_setting("maintenance_mode", "false")
+            self._cached_mode = (value or "false").lower() == "true"
+            self._cache_ts = now
+        return self._cached_mode
+
     async def __call__(
         self,
-        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
         event: TelegramObject,
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> Any:
         repo: RequestsRepo = data.get("repo")
         if not repo:
-            # Should be handled after DatabaseMiddleware
             return await handler(event, data)
 
-        # Check maintenance setting
-        m_mode = await repo.settings.get_setting("maintenance_mode", "false")
-        
-        if m_mode.lower() != "true":
+        if not await self._get_maintenance_mode(repo):
             return await handler(event, data)
 
-        # Maintenance is ON
-        # Check if user is admin
-        user: User = data.get("event_from_user")
-        if not user:
-            # No user? Maybe service update. Let it pass or block.
+        # data["user"] is the SQLAlchemy User object injected by DatabaseMiddleware
+        db_user = data.get("user")
+        if not db_user:
             return await handler(event, data)
 
-        # We can check is_admin from DB (repo.users) or config.
-        # User object in data["user"] (from DB middleware?)
-        # Let's check `data.get("user")` which is the DB User object if DatabaseMiddleware put it there (usually it doesn't automatically put DB user unless we custom logic).
-        # But we have `repo`.
-        # NOTE: DatabaseMiddleware in this bot (I saw previously) likely passes `repo` but maybe not the user object?
-        # Let's assume we check ID against config admins FIRST for safety, then DB admins.
-        
         config = data.get("config")
-        is_admin = False
-        if user.id in config.tg_bot.admin_ids:
-            is_admin = True
-        else:
-             # Check DB
-             db_user = await repo.users.get_user_by_id(user.id)
-             if db_user and db_user.is_admin:
-                 is_admin = True
-
+        is_admin = db_user.user_id in config.tg_bot.admin_ids or db_user.is_admin
         if is_admin:
             return await handler(event, data)
 
-        # Block user
-        m_msg = await repo.settings.get_setting("maintenance_message")
-        if not m_msg:
-            m_msg = "⛔️ <b>Вибачте, в нас технічні роботи в боті.</b>\nНайближчим часом запустимо бота з оновленнями!"
+        m_msg = await repo.settings.get_setting("maintenance_message") or (
+            "⛔️ <b>Вибачте, в нас технічні роботи в боті.</b>\n"
+            "Найближчим часом запустимо бота з оновленнями!"
+        )
 
-        # Reply if message or answer if callback
         if isinstance(event, Message):
-            # To avoid spam loops, maybe check if message text is NOT the maintenance message (bot shouldn't reply to self anyway).
-            # Just reply.
             await event.answer(m_msg)
         elif isinstance(event, CallbackQuery):
             await event.answer(m_msg, show_alert=True)
-        
-        # Stop propagation
-        return
+
+        return  # stop propagation

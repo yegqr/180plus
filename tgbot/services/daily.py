@@ -6,7 +6,7 @@ import random
 from datetime import datetime, timedelta
 from typing import Any
 
-from aiogram import Bot
+from aiogram import Bot, exceptions
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -57,8 +57,21 @@ async def _send_daily_to_user(
         else:
             await bot.send_message(text=caption, reply_markup=kb, **send_kwargs)
         return True
+    except exceptions.TelegramForbiddenError:
+        logger.warning(f"Daily: User {user.user_id} blocked the bot — skipping.")
+        return False
+    except exceptions.TelegramBadRequest as e:
+        logger.warning(f"Daily: Bad request for user {user.user_id}: {e.message}")
+        return False
+    except exceptions.TelegramRetryAfter as e:
+        logger.warning(f"Daily: Rate limit hit for user {user.user_id}, sleep {e.retry_after}s then skip.")
+        await asyncio.sleep(e.retry_after)
+        return False
+    except exceptions.TelegramAPIError as e:
+        logger.error(f"Daily: Telegram API error for user {user.user_id}: {e}")
+        return False
     except Exception as e:
-        logger.warning(f"Daily: Failed to send to user {user.user_id}: {e}")
+        logger.error(f"Daily: Unexpected error for user {user.user_id}: {e}", exc_info=True)
         return False
 
 
@@ -138,6 +151,7 @@ async def schedule_daily_lottery(scheduler: Any, bot: Bot, session_pool: async_s
         if random.random() >= 0.5:
             logger.info("Daily Challenge: Lottery LOST. No challenge today.")
             await repo.settings.set_setting("daily_lottery_status", "LOSS")
+            await session.commit()
             return
 
         logger.info("Daily Challenge: Lottery WON! Scheduling for today.")
@@ -146,10 +160,12 @@ async def schedule_daily_lottery(scheduler: Any, bot: Bot, session_pool: async_s
         if target_time is None:
             logger.info("Daily Challenge: Day nearly over, skipping broadcast.")
             await repo.settings.set_setting("daily_lottery_status", "MISS (Day Over)")
+            await session.commit()
             return
 
         logger.info(f"Daily Challenge: Scheduled for {target_time}")
         await repo.settings.set_setting("daily_lottery_status", f"WIN ({target_time:%H:%M})")
+        await session.commit()
         scheduler.add_job(
             broadcast_daily_question,
             "date",

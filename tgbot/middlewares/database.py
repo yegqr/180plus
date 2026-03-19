@@ -31,4 +31,10 @@ class DatabaseMiddleware(BaseMiddleware):
             data["session"] = session
             data["repo"] = repo
             data["user"] = user
-            return await handler(event, data)
+            try:
+                result = await handler(event, data)
+                await session.commit()
+                return result
+            except Exception:
+                await session.rollback()
+                raise

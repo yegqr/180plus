@@ -144,7 +144,7 @@ async def main():
     setup_dialogs(dp)
 
     from tgbot.services.scheduler import setup_scheduler
-    await setup_scheduler(bot, session_pool)
+    await setup_scheduler(bot, session_pool, config=config)
 
     await on_startup(bot, config.tg_bot.admin_ids, engine)
     await dp.start_polling(bot)

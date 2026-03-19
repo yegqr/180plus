@@ -26,8 +26,8 @@ from tgbot.misc.utils import build_answer_ui, build_hint_text, format_answer_pai
 from tgbot.services.scoring import (
     check_simulation_answer,
     is_answer_correct_for_display,
-    score_simulation,
 )
+from tgbot.services.simulation_service import finish_simulation
 
 class SimulationSG(StatesGroup):
     select_year = State()
@@ -331,25 +331,12 @@ async def on_prev(c: Any, b: Button, dm: DialogManager) -> None:
     curr = dm.dialog_data.get("current_index", 0)
     await update_question_view(dm, curr - 1)
 
-async def _load_questions_data(repo: RequestsRepo, q_ids: list) -> list[dict]:
-    """Fetches question metadata from DB for each ID and returns scoring-ready dicts."""
-    result = []
-    for q_id_raw in q_ids:
-        qid = int(q_id_raw)
-        question = await repo.questions.get_question_by_id(qid)
-        result.append({
-            "id":             qid,
-            "q_number":       question.q_number,
-            "q_type":         question.q_type,
-            "correct_answer": question.correct_answer,
-        })
-    return result
-
 
 async def on_finish(c: Any, b: Button, dm: DialogManager) -> None:
-    dm.dialog_data["end_time"] = time.time()
-    # Results will be saved in summary getter (or here)
-    # Cleanup album on finish
+    end_time = time.time()
+    dm.dialog_data["end_time"] = end_time
+
+    # Cleanup album
     bot = dm.middleware_data.get("bot")
     old_album_ids = dm.dialog_data.get("album_message_ids")
     if old_album_ids:
@@ -357,64 +344,25 @@ async def on_finish(c: Any, b: Button, dm: DialogManager) -> None:
         await AlbumManager.cleanup_album(bot, chat_id, old_album_ids)
         dm.dialog_data["album_message_ids"] = []
 
-    # Save Result and Logs
     repo: RequestsRepo = dm.middleware_data.get("repo")
     user: User = dm.middleware_data.get("user")
-    
-    # We need to calculate score here to save it?
-    # Or we delegate saving to a service function to avoid code duplication with getter?
-    # For now, let's just save the Logs (UserActionLog).
-    # ExamResult saving might trigger "completed" flag.
-    
-    # 1. Calculate Score & Prepare Logs  (via pure scoring service)
-    answers = dm.dialog_data.get("answers", {})
-    q_ids = dm.dialog_data.get("q_ids", [])
-    session_id = dm.dialog_data.get("sim_session")
-    subject = user.selected_subject
 
-    questions_data = await _load_questions_data(repo, q_ids)
+    result = await finish_simulation(
+        repo=repo,
+        user=user,
+        q_ids=dm.dialog_data.get("q_ids", []),
+        answers=dm.dialog_data.get("answers", {}),
+        session_id=dm.dialog_data.get("sim_session"),
+        year=dm.dialog_data.get("sim_year"),
+        start_time=dm.dialog_data.get("start_time", end_time),
+        end_time=end_time,
+    )
 
-    sim_result = score_simulation(questions_data, answers, subject, session_id, user.user_id)
-    total_score = sim_result.total_score
-    total_max = sim_result.total_max
-    logs_to_save = sim_result.logs_data
-            
-    # 2. Final calculations
-    start_time = dm.dialog_data.get("start_time", time.time())
-    end_time = dm.dialog_data.get("end_time", time.time())
-    duration = int(end_time - start_time)
-    
-    from tgbot.misc.nmt_scoring import get_nmt_score
-    nmt_val = get_nmt_score(subject, total_score, max_possible=total_max)
-    nmt_score = nmt_val or 0
-    nmt_text = f"<b>{nmt_score}</b>" if nmt_val else "Не склав (менше 100)"
-
-    # 3. Store results for UI
-    dm.dialog_data["final_raw_score"] = total_score
-    dm.dialog_data["final_max_score"] = total_max
-    dm.dialog_data["final_nmt_score"] = nmt_score
-    dm.dialog_data["final_nmt_text"] = nmt_text
-    dm.dialog_data["final_duration"] = duration
-    
-    # 4. Save to Database (ONLY IF AT LEAST 1 ANSWER)
-    has_answers = (len(answers) > 0)
-    
-    if has_answers:
-        await repo.results.save_result(
-            user_id=user.user_id,
-            subject=subject,
-            year=dm.dialog_data.get("sim_year"),
-            session_name=session_id,
-            raw_score=total_score,
-            nmt_score=nmt_score,
-            duration=duration
-        )
-        if logs_to_save:
-            await repo.logs.add_logs_batch(logs_to_save)
-    else:
-        # If no answers, we don't save result to DB.
-        pass
-    
+    dm.dialog_data["final_raw_score"] = result.raw_score
+    dm.dialog_data["final_max_score"] = result.max_score
+    dm.dialog_data["final_nmt_score"] = result.nmt_score
+    dm.dialog_data["final_nmt_text"] = result.nmt_text
+    dm.dialog_data["final_duration"] = result.duration
     dm.dialog_data["results_saved"] = True
     await dm.switch_to(SimulationSG.summary)
 
@@ -432,20 +380,24 @@ async def get_summary_data(dialog_manager: DialogManager, **kwargs) -> dict:
     nmt_text_final = dialog_manager.dialog_data.get("final_nmt_text", "—")
     duration = dialog_manager.dialog_data.get("final_duration", 0)
     
+    # Batch-fetch all answered questions in one query
+    answered_ids = [int(q) for q in q_ids if answers.get(str(int(q)))]
+    q_map = {q.id: q for q in await repo.questions.get_questions_by_ids(answered_ids)}
+
     errors = []
     for idx, q_id_str in enumerate(q_ids):
         qid = int(q_id_str)
         user_ans = answers.get(str(qid))
-        if not user_ans: continue
-        
-        question = await repo.questions.get_question_by_id(qid)
+        if not user_ans:
+            continue
+        question = q_map.get(qid)
+        if not question:
+            continue
         correct = question.correct_answer
-        
-        # Check if error for display (via pure scoring service)
+
         is_error = not is_answer_correct_for_display(
             question.q_type, correct, user_ans, subject
         )
-
         if is_error:
             u_fmt, c_fmt = format_answer_pair(question.q_type, correct, user_ans)
             errors.append(f"<b>Питання {idx+1}:</b>\nВаша: <code>{u_fmt}</code>\nПравильна: <code>{c_fmt}</code>")
