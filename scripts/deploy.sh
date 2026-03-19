@@ -62,7 +62,18 @@ until docker compose exec -T pg_database pg_isready -U "${POSTGRES_USER:-postgre
 done
 echo -e "${GREEN}✅ Database is ready!${NC}"
 
-# 6. Run migrations in a fresh one-off container (not exec into potentially crashing bot)
+# 6. Sync Postgres password with .env (self-heals if .env was ever overwritten with wrong password)
+# Local socket auth inside the container bypasses password checks, so this always works.
+DB_PASS=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2-)
+DB_USER=$(grep '^POSTGRES_USER=' .env | cut -d= -f2-)
+DB_USER="${DB_USER:-postgres}"
+if [ -n "$DB_PASS" ]; then
+    docker compose exec -T pg_database psql -U "$DB_USER" -c "ALTER USER ${DB_USER} WITH PASSWORD '${DB_PASS}';" > /dev/null 2>&1 \
+        && echo -e "${GREEN}✅ DB password synced!${NC}" \
+        || echo -e "${YELLOW}⚠️  Could not sync DB password (may be fine if already correct).${NC}"
+fi
+
+# 8. Run migrations in a fresh one-off container (not exec into potentially crashing bot)
 echo -e "${YELLOW}🗄️  Running database migrations...${NC}"
 if ! docker compose run --rm bot alembic upgrade head; then
     echo -e "${YELLOW}⚠️ Migration failed. Attempting to fix schema sync...${NC}"
@@ -74,7 +85,7 @@ if ! docker compose run --rm bot alembic upgrade head; then
 fi
 echo -e "${GREEN}✅ Migrations complete!${NC}"
 
-# 7. Start bot
+# 9. Start bot
 echo -e "${YELLOW}🤖 Starting bot...${NC}"
 docker compose up -d bot
 
