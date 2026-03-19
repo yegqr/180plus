@@ -44,17 +44,39 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-# 4. Pull/Build/Up
-echo -e "${YELLOW}🏗️  Building and starting containers...${NC}"
-docker compose up -d --build
+# 4. Build image and start DB + Redis first
+echo -e "${YELLOW}🏗️  Building image and starting infrastructure...${NC}"
+docker compose build
+docker compose up -d pg_database redis_cache
 
+# 5. Wait for Postgres to be ready
+echo -e "${YELLOW}⏳ Waiting for database to be ready...${NC}"
+RETRIES=30
+until docker compose exec -T pg_database pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-nmt_bot}" > /dev/null 2>&1; do
+    RETRIES=$((RETRIES - 1))
+    if [ "$RETRIES" -le 0 ]; then
+        echo -e "${RED}❌ Database did not become ready in time!${NC}"
+        exit 1
+    fi
+    sleep 2
+done
+echo -e "${GREEN}✅ Database is ready!${NC}"
+
+# 6. Run migrations in a fresh one-off container (not exec into potentially crashing bot)
 echo -e "${YELLOW}🗄️  Running database migrations...${NC}"
-# Wait a bit for DB to be ready (though depends_on helps, typically safer to wait or retry)
-sleep 5
-# Auto-healing migration:
-# If upgrade fails (e.g. "table exists"), assume DB is out of sync, stamp to previous revision, and try again.
-docker compose exec -T bot alembic upgrade head || (echo "⚠️ Migration failed. Attempting to fix schema sync..." && docker compose exec -T bot alembic stamp 6de8e23ae988 && docker compose exec -T bot alembic upgrade head)
+if ! docker compose run --rm bot alembic upgrade head; then
+    echo -e "${YELLOW}⚠️ Migration failed. Attempting to fix schema sync...${NC}"
+    docker compose run --rm bot alembic stamp 6de8e23ae988 && \
+    docker compose run --rm bot alembic upgrade head || {
+        echo -e "${RED}❌ Migration fix failed! Check alembic logs.${NC}"
+        exit 1
+    }
+fi
+echo -e "${GREEN}✅ Migrations complete!${NC}"
 
+# 7. Start bot
+echo -e "${YELLOW}🤖 Starting bot...${NC}"
+docker compose up -d bot
 
 echo -e "${GREEN}🚀 Deployment successful!${NC}"
 echo -e "${YELLOW}ℹ️  Check logs using: ${NC}docker compose logs -f bot"
