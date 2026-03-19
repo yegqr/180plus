@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -31,7 +33,7 @@ class DbConfig:
     port: int = 5432
 
     # For SQLAlchemy
-    def construct_sqlalchemy_url(self, driver="asyncpg", host=None, port=None) -> str:
+    def construct_sqlalchemy_url(self, driver: str = "asyncpg", host: str | None = None, port: int | None = None) -> str:
         """
         Constructs and returns a SQLAlchemy URL for this database configuration.
         """
@@ -53,7 +55,7 @@ class DbConfig:
         return uri.render_as_string(hide_password=False)
 
     @staticmethod
-    def from_env(env: Env):
+    def from_env(env: Env) -> DbConfig:
         """
         Creates the DbConfig object from environment variables.
         """
@@ -78,7 +80,7 @@ class TgBot:
     use_redis: bool
 
     @staticmethod
-    def from_env(env: Env):
+    def from_env(env: Env) -> TgBot:
         """
         Creates the TgBot object from environment variables.
         """
@@ -117,7 +119,7 @@ class RedisConfig:
             return f"redis://{self.redis_host}:{self.redis_port}/0"
 
     @staticmethod
-    def from_env(env: Env):
+    def from_env(env: Env) -> RedisConfig:
         """
         Creates the RedisConfig object from environment variables.
         """

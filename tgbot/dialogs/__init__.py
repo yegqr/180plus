@@ -1,4 +1,4 @@
-from .admin import admin_dialog
+from .admin import admin_dialog  # now a package: tgbot/dialogs/admin/
 from .main_menu import main_menu_dialog
 from .simulation import simulation_dialog
 from .random_mode import random_dialog

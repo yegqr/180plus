@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
 # This is a simple keyboard, that contains 2 buttons
-def very_simple_keyboard():
+def very_simple_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(text="📝 Створити замовлення",
@@ -20,7 +22,7 @@ def very_simple_keyboard():
 
 
 # This is the same keyboard, but created with InlineKeyboardBuilder (preferred way)
-def simple_menu_keyboard():
+def simple_menu_keyboard() -> InlineKeyboardMarkup:
     # First, you should create an InlineKeyboardBuilder object
     keyboard = InlineKeyboardBuilder()
 
@@ -58,7 +60,7 @@ class OrderCallbackData(CallbackData, prefix="order"):
     order_id: int
 
 
-def my_orders_keyboard(orders: list):
+def my_orders_keyboard(orders: list) -> InlineKeyboardMarkup:
     # Here we use a list of orders as a parameter (from simple_menu.py)
 
     keyboard = InlineKeyboardBuilder()

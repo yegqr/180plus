@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, ContentType
@@ -13,7 +15,7 @@ class StatsSG(StatesGroup):
     main = State()
     input_feedback = State()
 
-async def get_stats(dialog_manager: DialogManager, **kwargs):
+async def get_stats(dialog_manager: DialogManager, **kwargs) -> dict:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     user: User = dialog_manager.middleware_data.get("user")
     
@@ -66,7 +68,7 @@ async def get_stats(dialog_manager: DialogManager, **kwargs):
         "daily_sub_text": "Сповіщення (Daily Challenge)"
     }
 
-async def on_toggle_daily_sub(callback: Any, button: Button, dialog_manager: DialogManager):
+async def on_toggle_daily_sub(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     user: User = dialog_manager.middleware_data.get("user")
     
@@ -86,10 +88,10 @@ async def on_toggle_daily_sub(callback: Any, button: Button, dialog_manager: Dia
     text = "🔔 Сповіщення увімкнено!" if new_status else "🔕 Сповіщення вимкнено!"
     await callback.answer(text)
 
-async def on_feedback_button(callback: Any, button: Button, dialog_manager: DialogManager):
+async def on_feedback_button(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
     await dialog_manager.switch_to(StatsSG.input_feedback)
 
-async def on_feedback_input(message: Message, message_input: MessageInput, dialog_manager: DialogManager):
+async def on_feedback_input(message: Message, message_input: MessageInput, dialog_manager: DialogManager) -> None:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     user: User = dialog_manager.middleware_data.get("user")
     bot = message.bot

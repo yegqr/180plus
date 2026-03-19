@@ -16,3 +16,5 @@ alembic~=1.0
 asyncpg
 google-genai
 apscheduler
+pytest
+pytest-asyncio

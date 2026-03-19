@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 from aiogram.types import CallbackQuery
 
@@ -14,7 +16,7 @@ from .random_mode import RandomSG
 class SubjectMenuSG(StatesGroup):
     menu = State()
 
-async def get_subject_data(dialog_manager: DialogManager, **kwargs):
+async def get_subject_data(dialog_manager: DialogManager, **kwargs) -> dict:
     user: User = dialog_manager.middleware_data.get("user")
     
     subject_map = {
@@ -30,22 +32,22 @@ async def get_subject_data(dialog_manager: DialogManager, **kwargs):
         "is_admin": user.is_admin
     }
 
-async def on_simulation(callback: Any, button: Button, dialog_manager: DialogManager):
-    await dialog_manager.start(SimulationSG.select_year, mode=StartMode.NORMAL) 
+async def on_simulation(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
+    await dialog_manager.start(SimulationSG.select_year, mode=StartMode.NORMAL)
 
-async def on_random(callback: Any, button: Button, dialog_manager: DialogManager):
+async def on_random(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
     await dialog_manager.start(RandomSG.question, mode=StartMode.NORMAL)
 
 
-async def on_calc(c: CallbackQuery, button: Button, manager: DialogManager):
+async def on_calc(c: CallbackQuery, button: Button, manager: DialogManager) -> None:
     from .calculator import CalculatorSG
     await manager.start(CalculatorSG.main, mode=StartMode.NORMAL)
 
-async def on_admin_panel(callback: Any, button: Button, dialog_manager: DialogManager):
+async def on_admin_panel(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
     from .admin import AdminSG
     await dialog_manager.start(AdminSG.menu, mode=StartMode.NORMAL)
 
-async def on_stats(callback: Any, button: Button, dialog_manager: DialogManager):
+async def on_stats(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
     from .stats import StatsSG
     await dialog_manager.start(StatsSG.main, mode=StartMode.NORMAL)
 

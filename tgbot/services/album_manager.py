@@ -1,6 +1,7 @@
 
+from __future__ import annotations
+
 import logging
-from typing import List, Optional
 
 from aiogram import Bot
 from aiogram.types import InputMediaPhoto, Message
@@ -16,11 +17,11 @@ class AlbumManager:
 
     @staticmethod
     async def send_album(
-        bot: Bot, 
-        chat_id: int, 
-        image_file_ids: List[str], 
-        caption: Optional[str] = None
-    ) -> List[int]:
+        bot: Bot,
+        chat_id: int,
+        image_file_ids: list[str],
+        caption: str | None = None,
+    ) -> list[int]:
         """
         Sends a media group (album) and returns the list of message IDs.
         """
@@ -50,14 +51,14 @@ class AlbumManager:
             )
 
         try:
-            messages: List[Message] = await bot.send_media_group(chat_id=chat_id, media=media_group)
+            messages: list[Message] = await bot.send_media_group(chat_id=chat_id, media=media_group)
             return [m.message_id for m in messages]
         except Exception as e:
             logger.error(f"Failed to send album: {e}")
             return []
 
     @staticmethod
-    async def cleanup_album(bot: Bot, chat_id: int, message_ids: List[int]):
+    async def cleanup_album(bot: Bot, chat_id: int, message_ids: list[int]) -> None:
         """
         Deletes the album messages.
         """

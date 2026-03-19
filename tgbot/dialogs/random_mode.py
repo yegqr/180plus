@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import random
 from typing import Any
 
@@ -16,15 +18,16 @@ from tgbot.services.album_manager import AlbumManager
 from infrastructure.database.models import User, Question
 from infrastructure.database.repo.requests import RequestsRepo
 
-UKR_LETTERS = "АБВГДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ"
-ENG_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+from tgbot.misc.constants import UKR_LETTERS, ENG_LETTERS
+from tgbot.misc.utils import build_answer_ui, build_hint_text, build_wrong_answer_status, get_question_images
+from tgbot.services.scoring import check_random_answer
 
 class RandomSG(StatesGroup):
     question = State()
 
 # --- Getters ---
 
-async def get_random_question(dialog_manager: DialogManager, **kwargs):
+async def get_random_question(dialog_manager: DialogManager, **kwargs) -> dict:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     user: User = dialog_manager.middleware_data.get("user")
     
@@ -41,35 +44,14 @@ async def get_random_question(dialog_manager: DialogManager, **kwargs):
     
     image = None
     if not is_album:
-        images = []
-        if question.image_file_id:
-            images.append(question.image_file_id)
-        if question.images:
-            for img in question.images:
-                if img not in images:
-                    images.append(img)
+        images = get_question_images(question)
         if images:
             image = MediaAttachment(type=ContentType.PHOTO, file_id=MediaId(images[0]))
     
-    # UI Elements based on type
-    # UI Elements based on type
-    choice_variants = []
     letters_source = ENG_LETTERS if user.selected_subject == "eng" else UKR_LETTERS
-
-    if question.q_type == "choice":
-        count = int(question.correct_answer.get("options", 5))
-        choice_variants = [(letters_source[i], letters_source[i]) for i in range(count)]
-
-    match_nums = []
-    match_letters = []
-    if question.q_type == "match":
-        options = str(question.correct_answer.get("options", "3x5")).lower()
-        try:
-            n, m = map(int, options.split('x'))
-        except:
-            n, m = 3, 5
-        match_nums = [(str(i+1), str(i+1)) for i in range(n)]
-        match_letters = [(letters_source[i], letters_source[i]) for i in range(m)]
+    choice_variants, match_nums, match_letters = build_answer_ui(
+        question.q_type, question.correct_answer, letters_source
+    )
 
     user_ans = dialog_manager.dialog_data.get("user_answer")
     is_correct = dialog_manager.dialog_data.get("is_correct")
@@ -78,34 +60,10 @@ async def get_random_question(dialog_manager: DialogManager, **kwargs):
     if is_correct is True:
         status_text = "✅ <b>Правильно!</b>"
     elif is_correct is False:
-        # Show correct answer on fail
-        correct = question.correct_answer
-        
-        if question.q_type == "match":
-            target_pairs = correct.get("pairs", {})
-            user_pairs = user_ans if isinstance(user_ans, dict) else {}
-            
-            feedback_parts = []
-            for n, correct_l in sorted(target_pairs.items()):
-                user_l = user_pairs.get(str(n))
-                if user_l == str(correct_l):
-                    feedback_parts.append(f"<b>{n}-{user_l}</b> ✅")
-                else:
-                    feedback_parts.append(f"<b>{n}-{user_l or '?'}</b> ❌ (→ {correct_l})")
-            
-            status_text = "😟 <b>Не зовсім правильно:</b>\n" + ", ".join(feedback_parts)
-            
-        elif question.q_type == "choice":
-            status_text = f"❌ <b>Неправильно.</b> Правильна відповідь: <code>{correct.get('answer')}</code>"
-        else:
-            status_text = f"❌ <b>Неправильно.</b> Правильна відповідь: <code>{correct.get('answer')}</code>"
+        status_text = build_wrong_answer_status(question.q_type, question.correct_answer, user_ans)
 
     active_num = dialog_manager.dialog_data.get("active_match_num")
-    hint = "Обери варіант:" if question.q_type == "choice" else \
-           f"Обери літеру для {active_num}:" if active_num else \
-           "Обери цифру:" if question.q_type == "match" else \
-           "✍️ Напиши цифри відповіді (порядок неважливий, наприклад: 123)" if (question.q_type == "short" and user.selected_subject == "hist") else \
-           "Напиши відповідь у чат:"
+    hint = build_hint_text(question.q_type, active_num, user.selected_subject)
 
     show_explanation = dialog_manager.dialog_data.get("show_explanation", False)
     import html
@@ -163,7 +121,7 @@ async def get_random_question(dialog_manager: DialogManager, **kwargs):
 
 # --- Handlers ---
 
-async def update_question_view(dm: DialogManager, q_id: int = None, pick_new: bool = False):
+async def update_question_view(dm: DialogManager, q_id: int | None = None, pick_new: bool = False) -> None:
     """
     Handles switching questions, sending new albums, and cleaning old ones in Random Mode.
     """
@@ -204,14 +162,8 @@ async def update_question_view(dm: DialogManager, q_id: int = None, pick_new: bo
     question = await repo.questions.get_question_by_id(current_id)
     
     # 3. Check for Album (including materials)
-    images = []
-    if question.image_file_id:
-        images.append(question.image_file_id)
-    if question.images:
-        for img in question.images:
-            if img not in images:
-                images.append(img)
-        
+    images = get_question_images(question)
+
     if dm.dialog_data.get("show_materials"):
         material = await repo.materials.get_by_subject(user.selected_subject)
         if material and material.images:
@@ -222,143 +174,102 @@ async def update_question_view(dm: DialogManager, q_id: int = None, pick_new: bo
         
         # Bug Fix: try to delete previous dialog message
         try:
-             stack = dm.current_stack()
-             if stack and stack.last_message_id:
-                 await bot.delete_message(chat_id, stack.last_message_id)
+            stack = dm.current_stack()
+            if stack and stack.last_message_id:
+                await bot.delete_message(chat_id, stack.last_message_id)
         except Exception:
-            pass
-            
+            pass  # fire-and-forget cleanup
+
         album_ids = await AlbumManager.send_album(bot, chat_id, images, caption=None)
         dm.dialog_data["album_message_ids"] = album_ids
         dm.show_mode = ShowMode.SEND
     else:
         dm.show_mode = ShowMode.EDIT
 
-async def check_answer(dm: DialogManager, user_ans: Any):
+async def check_answer(dm: DialogManager, user_ans: Any) -> None:
     repo: RequestsRepo = dm.middleware_data.get("repo")
+    user: User = dm.middleware_data.get("user")
     q_id = dm.dialog_data.get("current_q_id")
     question = await repo.questions.get_question_by_id(q_id)
-    correct = question.correct_answer
-    
-    is_correct = False
-    points = 0
-    
-    if question.q_type == "choice":
-        if str(user_ans).strip().upper() == str(correct.get("answer")).strip().upper():
-            is_correct = True
-            points = 1
-    elif question.q_type == "short":
-        points_if_correct = 2
-        
-        # Special scoring for History
-        user: User = dm.middleware_data.get("user")
-        if user.selected_subject == "hist":
-            points_if_correct = 3
-            
-        u_str = str(user_ans).strip()
-        c_str = str(correct.get("answer")).strip()
-        try:
-            u_val = float(u_str.replace(",", "."))
-            c_val = float(c_str.replace(",", "."))
-            if u_val == c_val: 
-                is_correct = True
-        except:
-            if u_str == c_str: 
-                is_correct = True
-        
-        # Flexible digit matching for specific subjects
-        if not is_correct and user.selected_subject in ["hist", "mova", "eng"]:
-            if u_str.isdigit() and c_str.isdigit():
-                is_correct = (sorted(u_str) == sorted(c_str))
 
-        if is_correct:
-            points = points_if_correct
-    elif question.q_type == "match":
-        target_pairs = correct.get("pairs", {})
-        if isinstance(user_ans, dict):
-            matched_count = 0
-            for n, l in target_pairs.items():
-                if user_ans.get(str(n)) == str(l):
-                    matched_count += 1
-            
-            points = matched_count
-            if matched_count == len(target_pairs):
-                is_correct = True
-            else:
-                is_correct = False # Still False if partial, for UI status
-
-    dm.dialog_data["user_answer"] = user_ans
-    dm.dialog_data["is_correct"] = is_correct
-
-    # Save to stats if any points earned
-    if points > 0:
-        user: User = dm.middleware_data.get("user")
-        await repo.results.save_random_result(user.user_id, user.selected_subject, q_id, points=points)
-
-    # Save to UserActionLog
-    # Format answer for log
-    log_ans = str(user_ans)
-    if isinstance(user_ans, dict):
-        log_ans = ", ".join([f"{k}-{v}" for k, v in sorted(user_ans.items())])
-        
-    await repo.logs.add_log(
-        user_id=dm.middleware_data.get("user").user_id,
-        question_id=q_id,
-        answer=log_ans,
-        is_correct=is_correct,
-        mode="random"
+    result = check_random_answer(
+        q_type=question.q_type,
+        correct_answer=question.correct_answer,
+        user_answer=user_ans,
+        subject=user.selected_subject,
     )
 
-async def on_choice_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
+    dm.dialog_data["user_answer"] = user_ans
+    dm.dialog_data["is_correct"] = result.is_correct
+
+    if result.points_earned > 0:
+        await repo.results.save_random_result(
+            user.user_id, user.selected_subject, q_id, points=result.points_earned
+        )
+
+    log_ans = (
+        ", ".join(f"{k}-{v}" for k, v in sorted(user_ans.items()))
+        if isinstance(user_ans, dict)
+        else str(user_ans)
+    )
+    await repo.logs.add_log(
+        user_id=user.user_id,
+        question_id=q_id,
+        answer=log_ans,
+        is_correct=result.is_correct,
+        mode="random",
+    )
+
+async def on_choice_selected(c: Any, w: Any, dm: DialogManager, item_id: str) -> None:
     if dm.dialog_data.get("is_correct") is not None: return
     await check_answer(dm, item_id)
 
-async def on_match_num_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
+async def on_match_num_selected(c: Any, w: Any, dm: DialogManager, item_id: str) -> None:
     if dm.dialog_data.get("is_correct") is not None: return
     dm.dialog_data["active_match_num"] = item_id
 
-async def on_match_letter_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
+async def on_match_letter_selected(c: Any, w: Any, dm: DialogManager, item_id: str) -> None:
     active_num = dm.dialog_data.get("active_match_num")
     if not active_num: return
-    
+
     ans_data = dm.dialog_data.get("user_answer", {})
     if not isinstance(ans_data, dict): ans_data = {}
     ans_data[active_num] = item_id
     dm.dialog_data["user_answer"] = ans_data
     dm.dialog_data["active_match_num"] = None
-    
+
     # Check if all pairs filled
     repo: RequestsRepo = dm.middleware_data.get("repo")
     q_id = dm.dialog_data.get("current_q_id")
     question = await repo.questions.get_question_by_id(q_id)
     target_count = len(question.correct_answer.get("pairs", {}))
-    
+
     if len(ans_data) >= target_count:
         await check_answer(dm, ans_data)
 
-async def on_answer_text(m: Message, w: MessageInput, dm: DialogManager):
-    if dm.dialog_data.get("is_correct") is not None: 
+async def on_answer_text(m: Message, w: MessageInput, dm: DialogManager) -> None:
+    if dm.dialog_data.get("is_correct") is not None:
         await m.delete()
         return
     dm.show_mode = ShowMode.EDIT
     await check_answer(dm, m.text)
     await m.delete()
 
-async def on_show_explanation(c: Any, b: Button, dm: DialogManager):
+async def on_show_explanation(c: Any, b: Button, dm: DialogManager) -> None:
     current = dm.dialog_data.get("show_explanation", False)
     dm.dialog_data["show_explanation"] = not current
 
-async def on_show_materials(c: Any, b: Button, dm: DialogManager):
+async def on_show_materials(c: Any, b: Button, dm: DialogManager) -> None:
     current = dm.dialog_data.get("show_materials", False)
     dm.dialog_data["show_materials"] = not current
-    
+
     # Refresh view with new image set
     await update_question_view(dm)
 
-async def on_next_random(c: Any, b: Button, dm: DialogManager):
+async def on_next_random(c: Any, b: Button, dm: DialogManager) -> None:
     await update_question_view(dm, pick_new=True)
 
-async def on_random_start(data: Any, dm: DialogManager):
+async def on_random_start(data: Any, dm: DialogManager) -> None:
     await update_question_view(dm, pick_new=True)
 
 

@@ -1,0 +1,28 @@
+from aiogram.fsm.state import StatesGroup, State
+
+
+class AdminSG(StatesGroup):
+    menu = State()
+    stats = State()
+    manage_admins = State()
+    subjects = State()
+    years = State()
+    sessions = State()
+    questions = State()
+    question_detail = State()
+    upload_new = State()
+    settings = State()
+    approve_confirm_1 = State()
+    approve_confirm_2 = State()
+    update_video = State()
+    daily_settings = State()
+    maintenance = State()
+    maintenance_confirm = State()
+    maintenance_finish = State()
+    materials_subjects = State()
+    materials_upload = State()
+    gemini_settings = State()
+    bulk_upload = State()
+    delete_session_confirm = State()
+    edit_session_year = State()
+    edit_session_name = State()

@@ -1,6 +1,11 @@
+from __future__ import annotations
+
+import logging
 import time
 
 from typing import Any
+
+logger = logging.getLogger(__name__)
 from aiogram import F
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import ContentType, Message
@@ -16,8 +21,13 @@ from tgbot.services.album_manager import AlbumManager
 from infrastructure.database.models import User, Question
 from infrastructure.database.repo.requests import RequestsRepo
 
-UKR_LETTERS = "АБВГДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ"
-ENG_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+from tgbot.misc.constants import UKR_LETTERS, ENG_LETTERS, SUBJECT_LABELS
+from tgbot.misc.utils import build_answer_ui, build_hint_text, format_answer_pair, get_question_images
+from tgbot.services.scoring import (
+    check_simulation_answer,
+    is_answer_correct_for_display,
+    score_simulation,
+)
 
 class SimulationSG(StatesGroup):
     select_year = State()
@@ -29,7 +39,7 @@ class SimulationSG(StatesGroup):
 
 # --- Getters ---
 
-async def get_sim_years(dialog_manager: DialogManager, **kwargs):
+async def get_sim_years(dialog_manager: DialogManager, **kwargs) -> dict:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     user: User = dialog_manager.middleware_data.get("user")
     years = await repo.questions.get_unique_years(user.selected_subject)
@@ -39,7 +49,7 @@ async def get_sim_years(dialog_manager: DialogManager, **kwargs):
         "has_years": len(years) > 0
     }
 
-async def get_sim_sessions(dialog_manager: DialogManager, **kwargs):
+async def get_sim_sessions(dialog_manager: DialogManager, **kwargs) -> dict:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     user: User = dialog_manager.middleware_data.get("user")
     year = dialog_manager.dialog_data.get("sim_year")
@@ -49,15 +59,7 @@ async def get_sim_sessions(dialog_manager: DialogManager, **kwargs):
     # Fetch completed sessions for this user
     completed = await repo.results.get_completed_sessions(user.user_id, user.selected_subject, year)
     
-    # Beautify subject tags
-    subject_map = {
-        "math": "Math 🔢",
-        "mova": "🇺🇦 Mova", 
-        "eng": "English 🇬🇧",
-        "hist": "History 🇺🇦",
-        "physics": "Physics 🧲",
-    }
-    subj_formatted = subject_map.get(user.selected_subject, user.selected_subject)
+    subj_formatted = SUBJECT_LABELS.get(user.selected_subject, user.selected_subject)
 
     session_items = []
     for s in all_sessions:
@@ -74,7 +76,7 @@ async def get_sim_sessions(dialog_manager: DialogManager, **kwargs):
         "has_next": False
     }
 
-async def get_question_data(dialog_manager: DialogManager, **kwargs):
+async def get_question_data(dialog_manager: DialogManager, **kwargs) -> dict:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     user: User = dialog_manager.middleware_data.get("user")
     
@@ -109,55 +111,28 @@ async def get_question_data(dialog_manager: DialogManager, **kwargs):
     has_photos = False
     
     if not is_album:
-        # Build the combined images list to know which single image to show
-        images = []
-        if question.image_file_id:
-            images.append(question.image_file_id)
-        if question.images:
-            for img in question.images:
-                if img not in images:
-                    images.append(img)
-                    
+        images = get_question_images(question)
         if images:
-            current_image_id = images[0]
             has_photos = True
-            image = MediaAttachment(type=ContentType.PHOTO, file_id=MediaId(current_image_id))
+            image = MediaAttachment(type=ContentType.PHOTO, file_id=MediaId(images[0]))
     
-    choice_variants = []
     letters_source = ENG_LETTERS if user.selected_subject == "eng" else UKR_LETTERS
-
-    if question.q_type == "choice":
-        count = int(question.correct_answer.get("options", 5))
-        choice_variants = [(letters_source[i], letters_source[i]) for i in range(count)]
-
-    match_nums = []
-    match_letters = []
-    if question.q_type == "match":
-        options = str(question.correct_answer.get("options", "3x5")).lower()
-        try:
-            n, m = map(int, options.split('x'))
-        except:
-            n, m = 3, 5
-        match_nums = [(str(i+1), str(i+1)) for i in range(n)]
-        match_letters = [(letters_source[i], letters_source[i]) for i in range(m)]
+    choice_variants, match_nums, match_letters = build_answer_ui(
+        question.q_type, question.correct_answer, letters_source
+    )
 
     answers = dialog_manager.dialog_data.get("answers", {})
     ans_data = answers.get(str(current_id))
-    
+
     current_answer_text = "немає"
     if ans_data:
         if question.q_type == "match":
-            pairs = [f"{k}-{v}" for k, v in sorted(ans_data.items())]
-            current_answer_text = ", ".join(pairs)
+            current_answer_text = ", ".join(f"{k}-{v}" for k, v in sorted(ans_data.items()))
         else:
             current_answer_text = str(ans_data)
 
     active_num = dialog_manager.dialog_data.get("active_match_num")
-    hint = "Обери варіант:" if question.q_type == "choice" else \
-           f"Обери літеру для {active_num}:" if active_num else \
-           "Обери цифру:" if question.q_type == "match" else \
-           "✍️ Напиши цифри відповіді (порядок неважливий, наприклад: 123)" if (question.q_type == "short" and user.selected_subject == "hist") else \
-           "Напиши відповідь у чат:"
+    hint = build_hint_text(question.q_type, active_num, user.selected_subject)
 
     material = await repo.materials.get_by_subject(user.selected_subject)
     has_materials = bool(material and material.images)
@@ -182,7 +157,7 @@ async def get_question_data(dialog_manager: DialogManager, **kwargs):
         "materials_label": materials_label,
     }
 
-async def get_nav_data(dialog_manager: DialogManager, **kwargs):
+async def get_nav_data(dialog_manager: DialogManager, **kwargs) -> dict:
     q_ids = dialog_manager.dialog_data.get("q_ids", [])
     current_idx = dialog_manager.dialog_data.get("current_index", 0)
     
@@ -197,12 +172,12 @@ async def get_nav_data(dialog_manager: DialogManager, **kwargs):
 # --- Handlers ---
 
 
-async def on_year_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
+async def on_year_selected(c: Any, w: Any, dm: DialogManager, item_id: str) -> None:
     dm.dialog_data["sim_year"] = int(item_id)
     dm.dialog_data["session_page"] = 0
     await dm.switch_to(SimulationSG.select_session)
 
-async def on_session_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
+async def on_session_selected(c: Any, w: Any, dm: DialogManager, item_id: str) -> None:
     dm.dialog_data["sim_session"] = item_id
     
     # Pre-load questions and setup first view
@@ -242,7 +217,7 @@ async def on_session_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
     await dm.switch_to(SimulationSG.question)
 
 
-async def update_question_view(dm: DialogManager, new_index: int):
+async def update_question_view(dm: DialogManager, new_index: int) -> None:
     """
     Handles switching questions, sending new albums, and cleaning old ones.
     """
@@ -280,14 +255,8 @@ async def update_question_view(dm: DialogManager, new_index: int):
     question = await repo.questions.get_question_by_id(current_id)
     
     # 3. Check for Album (including materials)
-    images = []
-    if question.image_file_id:
-        images.append(question.image_file_id)
-    if question.images:
-        for img in question.images:
-            if img not in images:
-                images.append(img)
-    
+    images = get_question_images(question)
+
     if dm.dialog_data.get("show_materials"):
         repo: RequestsRepo = dm.middleware_data.get("repo")
         user: User = dm.middleware_data.get("user")
@@ -299,13 +268,13 @@ async def update_question_view(dm: DialogManager, new_index: int):
         # Send Album
         chat_id = dm.middleware_data.get("event_chat").id
         
-        # BUG FIX: Delete previous dialog message to prevent "hanging"
+        # Delete previous dialog message to prevent "hanging"
         try:
-             stack = dm.current_stack()
-             if stack and stack.last_message_id:
-                 await bot.delete_message(chat_id, stack.last_message_id)
+            stack = dm.current_stack()
+            if stack and stack.last_message_id:
+                await bot.delete_message(chat_id, stack.last_message_id)
         except Exception:
-            pass
+            logger.debug("Could not delete previous dialog message")
 
         album_ids = await AlbumManager.send_album(bot, chat_id, images, caption=None)
         dm.dialog_data["album_message_ids"] = album_ids
@@ -314,15 +283,15 @@ async def update_question_view(dm: DialogManager, new_index: int):
         # Single Image -> Use DynamicMedia in Window
         dm.show_mode = ShowMode.EDIT
 
-async def on_choice_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
+async def on_choice_selected(c: Any, w: Any, dm: DialogManager, item_id: str) -> None:
     q_ids = dm.dialog_data.get("q_ids", [])
     current_id = q_ids[dm.dialog_data.get("current_index", 0)]
     dm.dialog_data["answers"][str(current_id)] = item_id
 
-async def on_match_num_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
+async def on_match_num_selected(c: Any, w: Any, dm: DialogManager, item_id: str) -> None:
     dm.dialog_data["active_match_num"] = item_id
 
-async def on_match_letter_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
+async def on_match_letter_selected(c: Any, w: Any, dm: DialogManager, item_id: str) -> None:
     active_num = dm.dialog_data.get("active_match_num")
     if not active_num: return
     
@@ -337,14 +306,14 @@ async def on_match_letter_selected(c: Any, w: Any, dm: DialogManager, item_id: s
     answers[current_id] = ans_data
     dm.dialog_data["answers"] = answers
     dm.dialog_data["active_match_num"] = None
-async def on_match_clear(c: Any, b: Button, dm: DialogManager):
+async def on_match_clear(c: Any, b: Button, dm: DialogManager) -> None:
     q_ids = dm.dialog_data.get("q_ids", [])
     current_id = str(q_ids[dm.dialog_data.get("current_index", 0)])
     if current_id in dm.dialog_data["answers"]:
         del dm.dialog_data["answers"][current_id]
     dm.dialog_data["active_match_num"] = None
 
-async def on_answer_text(m: Message, w: MessageInput, dm: DialogManager):
+async def on_answer_text(m: Message, w: MessageInput, dm: DialogManager) -> None:
     dm.show_mode = ShowMode.EDIT
     q_ids = dm.dialog_data.get("q_ids", [])
     if not q_ids: return
@@ -352,17 +321,32 @@ async def on_answer_text(m: Message, w: MessageInput, dm: DialogManager):
     dm.dialog_data["answers"][current_id] = m.text
     await m.delete()
 
-async def on_next(c: Any, b: Button, dm: DialogManager):
+async def on_next(c: Any, b: Button, dm: DialogManager) -> None:
     dm.dialog_data["active_match_num"] = None
     curr = dm.dialog_data.get("current_index", 0)
     await update_question_view(dm, curr + 1)
 
-async def on_prev(c: Any, b: Button, dm: DialogManager):
+async def on_prev(c: Any, b: Button, dm: DialogManager) -> None:
     dm.dialog_data["active_match_num"] = None
     curr = dm.dialog_data.get("current_index", 0)
     await update_question_view(dm, curr - 1)
 
-async def on_finish(c: Any, b: Button, dm: DialogManager):
+async def _load_questions_data(repo: RequestsRepo, q_ids: list) -> list[dict]:
+    """Fetches question metadata from DB for each ID and returns scoring-ready dicts."""
+    result = []
+    for q_id_raw in q_ids:
+        qid = int(q_id_raw)
+        question = await repo.questions.get_question_by_id(qid)
+        result.append({
+            "id":             qid,
+            "q_number":       question.q_number,
+            "q_type":         question.q_type,
+            "correct_answer": question.correct_answer,
+        })
+    return result
+
+
+async def on_finish(c: Any, b: Button, dm: DialogManager) -> None:
     dm.dialog_data["end_time"] = time.time()
     # Results will be saved in summary getter (or here)
     # Cleanup album on finish
@@ -382,132 +366,18 @@ async def on_finish(c: Any, b: Button, dm: DialogManager):
     # For now, let's just save the Logs (UserActionLog).
     # ExamResult saving might trigger "completed" flag.
     
-    # 1. Calculate Score & Prepare Logs
+    # 1. Calculate Score & Prepare Logs  (via pure scoring service)
     answers = dm.dialog_data.get("answers", {})
     q_ids = dm.dialog_data.get("q_ids", [])
     session_id = dm.dialog_data.get("sim_session")
     subject = user.selected_subject
-    
-    total_score = 0
-    total_max = 0
-    logs_to_save = []
-    
-    for q_id_str in q_ids:
-        qid = int(q_id_str)
-        user_ans = answers.get(str(qid))
-        question = await repo.questions.get_question_by_id(qid)
-        correct = question.correct_answer
-        
-        q_score = 0
-        q_max = 0
-        
-        if subject == "hist":
-            # OFFICIAL HISTORY SCORING (54 PTS MAX)
-            # 1-20: Choice (1), 21-24: Match (4), 25-27: Sequence (3), 28-30: Cluster (3)
-            num = question.q_number
-            if 1 <= num <= 20:
-                q_max = 1
-                c_ans = str(correct.get("answer", "")).strip().upper()
-                if user_ans and str(user_ans).strip().upper() == c_ans:
-                    q_score = 1
-            elif 21 <= num <= 24:
-                q_max = 4
-                target_pairs = correct.get("pairs", {})
-                if isinstance(user_ans, dict):
-                    for k, v in user_ans.items():
-                        if target_pairs.get(str(k)) == str(v):
-                            q_score += 1
-            elif 25 <= num <= 30:
-                q_max = 3
-                if user_ans:
-                    # Case A: User answered as Match (dict)
-                    if isinstance(user_ans, dict):
-                         target_pairs = correct.get("pairs", {})
-                         matches = 0
-                         for k, v in user_ans.items():
-                             if target_pairs.get(str(k)) == str(v):
-                                 matches += 1
-                         # Sequence/Cluster max 3 pts
-                         q_score = min(3, matches)
-                    
-                    # Case B: User answered as String/Digits
-                    else:
-                        c_str = str(correct.get("answer", ""))
-                        c_digits = [c for c in c_str if c.isdigit()]
-                        # Fallback for Match stored as String: try keys if values are not digits?
-                        # But mostly likely if it's String answer, correct['answer'] should exist.
-                        # If not, let's try to extract digits from pairs keys if no answer string.
-                        if not c_digits and "pairs" in correct:
-                            # Use keys as digits if values seem to be letters
-                             c_digits = [str(k) for k in sorted(correct["pairs"].keys()) if str(k).isdigit()]
 
-                        u_str = str(user_ans)
-                        u_digits = [c for c in u_str if c.isdigit()]
-                        
-                        if 25 <= num <= 27:
-                            # Sequence: 1 pt per digit in correct position
-                            for i in range(min(len(u_digits), len(c_digits))):
-                                if u_digits[i] == c_digits[i]:
-                                    q_score += 1
-                        else:
-                            # Cluster (28-30): 1 pt per guessed digit (intersection)
-                            correct_set = set(c_digits)
-                            user_set = set(u_digits)
-                            q_score = len(correct_set.intersection(user_set))
-            else:
-                # Fallback for unexpected numbers
-                q_max = 1
-                if user_ans and str(user_ans).strip() == str(correct.get("answer", "")).strip():
-                    q_score = 1
-        else:
-            # STANDARD SCORING FOR OTHER SUBJECTS
-            if question.q_type == "choice":
-                q_max = 1
-                if user_ans and str(user_ans).strip().upper() == str(correct.get("answer")).strip().upper():
-                    q_score = 1
-            elif question.q_type == "short":
-                q_max = 2
-                points_if_correct = q_max
-                if user_ans:
-                    u_str = str(user_ans).strip()
-                    c_str = str(correct.get("answer")).strip()
-                    is_correct = False
-                    try:
-                        if float(u_str.replace(",", ".")) == float(c_str.replace(",", ".")): is_correct = True
-                    except:
-                        if u_str == c_str: is_correct = True
-                    
-                    if not is_correct and subject in ["mova", "eng"]:
-                        if u_str.isdigit() and c_str.isdigit():
-                            is_correct = (sorted(u_str) == sorted(c_str))
-                    
-                    if is_correct:
-                        q_score = points_if_correct
-            elif question.q_type == "match":
-                target_pairs = correct.get("pairs", {})
-                q_max = len(target_pairs)
-                if isinstance(user_ans, dict):
-                    for n, l in user_ans.items():
-                        if target_pairs.get(str(n)) == str(l):
-                            q_score += 1
-        
-        total_score += q_score
-        total_max += q_max
-        
-        # Log entry for answered questions
-        if user_ans:
-            log_ans = str(user_ans)
-            if isinstance(user_ans, dict):
-                log_ans = ", ".join([f"{k}-{v}" for k, v in sorted(user_ans.items())])
-            
-            logs_to_save.append({
-                "user_id": user.user_id,
-                "question_id": qid,
-                "answer": log_ans,
-                "is_correct": (q_score == q_max),
-                "mode": "simulation",
-                "session_id": session_id
-            })
+    questions_data = await _load_questions_data(repo, q_ids)
+
+    sim_result = score_simulation(questions_data, answers, subject, session_id, user.user_id)
+    total_score = sim_result.total_score
+    total_max = sim_result.total_max
+    logs_to_save = sim_result.logs_data
             
     # 2. Final calculations
     start_time = dm.dialog_data.get("start_time", time.time())
@@ -548,7 +418,7 @@ async def on_finish(c: Any, b: Button, dm: DialogManager):
     dm.dialog_data["results_saved"] = True
     await dm.switch_to(SimulationSG.summary)
 
-async def get_summary_data(dialog_manager: DialogManager, **kwargs):
+async def get_summary_data(dialog_manager: DialogManager, **kwargs) -> dict:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     user: User = dialog_manager.middleware_data.get("user")
     answers = dialog_manager.dialog_data.get("answers", {})
@@ -571,36 +441,13 @@ async def get_summary_data(dialog_manager: DialogManager, **kwargs):
         question = await repo.questions.get_question_by_id(qid)
         correct = question.correct_answer
         
-        # Check if error for display
-        is_error = False
-        if question.q_type == "choice":
-            is_error = (str(user_ans).strip().upper() != str(correct.get("answer")).strip().upper())
-        elif question.q_type == "short":
-            u_str = str(user_ans).strip()
-            c_str = str(correct.get("answer")).strip()
-            basic_match = False
-            try:
-                if float(u_str.replace(",", ".")) == float(c_str.replace(",", ".")): basic_match = True
-            except:
-                if u_str == c_str: basic_match = True
-            
-            if not basic_match and subject in ["hist", "mova", "eng"]:
-                if u_str.isdigit() and c_str.isdigit():
-                    basic_match = (sorted(u_str) == sorted(c_str))
-            
-            is_error = not basic_match
-        elif question.q_type == "match":
-            target_pairs = correct.get("pairs", {})
-            user_pairs = user_ans if isinstance(user_ans, dict) else {}
-            is_error = any(target_pairs.get(str(k)) != str(v) for k, v in user_pairs.items()) or len(user_pairs) != len(target_pairs)
+        # Check if error for display (via pure scoring service)
+        is_error = not is_answer_correct_for_display(
+            question.q_type, correct, user_ans, subject
+        )
 
         if is_error:
-            if question.q_type == "match":
-                u_fmt = ", ".join([f"{k}-{v}" for k, v in sorted((user_ans or {}).items())])
-                c_fmt = ", ".join([f"{k}-{v}" for k, v in sorted(correct.get("pairs", {}).items())])
-            else:
-                u_fmt = str(user_ans)
-                c_fmt = str(correct.get("answer"))
+            u_fmt, c_fmt = format_answer_pair(question.q_type, correct, user_ans)
             errors.append(f"<b>Питання {idx+1}:</b>\nВаша: <code>{u_fmt}</code>\nПравильна: <code>{c_fmt}</code>")
 
     errors_text = "\n\n".join(errors) if errors else "🎉 Вітаємо! Ви не допустили жодної помилки."
@@ -631,7 +478,7 @@ async def get_summary_data(dialog_manager: DialogManager, **kwargs):
         "errors_text": errors_text
     }
 
-async def get_review_data(dialog_manager: DialogManager, **kwargs):
+async def get_review_data(dialog_manager: DialogManager, **kwargs) -> dict:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     user: User = dialog_manager.middleware_data.get("user")
     
@@ -648,52 +495,21 @@ async def get_review_data(dialog_manager: DialogManager, **kwargs):
     
     image = None
     if not is_album:
-        images = []
-        if question.image_file_id:
-            images.append(question.image_file_id)
-        if question.images:
-            for img in question.images:
-                if img not in images:
-                    images.append(img)
+        images = get_question_images(question)
         if images:
             image = MediaAttachment(type=ContentType.PHOTO, file_id=MediaId(images[0]))
-    
+
     # Get answers
     answers = dialog_manager.dialog_data.get("answers", {})
     user_ans = answers.get(str(current_id))
     correct = question.correct_answer
 
-    # Format answers
-    if question.q_type == "match":
-        u_sorted = sorted((user_ans or {}).items())
-        u_fmt = ", ".join([f"{k}-{v}" for k, v in u_sorted]) or "немає"
-        c_fmt = ", ".join([f"{k}-{v}" for k, v in sorted(correct.get("pairs", {}).items())])
-    else:
-        u_fmt = str(user_ans or "немає")
-        c_fmt = str(correct.get("answer"))
+    u_fmt, c_fmt = format_answer_pair(question.q_type, correct, user_ans)
 
-    # Determine Correctness Status
-    # Re-using scoring logic essentially, or simplest string compare for display
-    is_correct = False
-    if question.q_type == "choice":
-        is_correct = (str(user_ans).strip().upper() == str(correct.get("answer")).strip().upper()) if user_ans else False
-    elif question.q_type == "short":
-        u_str = str(user_ans).strip() if user_ans else ""
-        c_str = str(correct.get("answer")).strip()
-        try:
-            is_correct = float(u_str.replace(",", ".")) == float(c_str.replace(",", "."))
-        except:
-            is_correct = (u_str == c_str) if u_str else False
-            
-        # Flexible digit matching for specific subjects
-        if not is_correct and user.selected_subject in ["hist", "mova", "eng"]:
-            if u_str.isdigit() and c_str.isdigit():
-                is_correct = (sorted(u_str) == sorted(c_str))
-    elif question.q_type == "match":
-         # Partial not handled in simple boolean, but for icon we can show check if full correct
-         target = correct.get("pairs", {})
-         if isinstance(user_ans, dict) and len(user_ans) == len(target):
-             is_correct = all(target.get(k) == v for k, v in user_ans.items())
+    # Determine Correctness Status (via pure scoring service)
+    is_correct = is_answer_correct_for_display(
+        question.q_type, correct, user_ans, user.selected_subject
+    )
 
     status_text = "✅ <b>Правильно!</b>" if is_correct else "❌ <b>Помилка</b>"
 
@@ -715,7 +531,7 @@ async def get_review_data(dialog_manager: DialogManager, **kwargs):
         "has_next": current_idx < len(q_ids) - 1
     }
 
-async def update_review_view(dm: DialogManager, new_index: int):
+async def update_review_view(dm: DialogManager, new_index: int) -> None:
     # 1. Cleanup Old Album
     bot = dm.middleware_data.get("bot")
     old_album_ids = dm.dialog_data.get("album_message_ids")
@@ -744,24 +560,18 @@ async def update_review_view(dm: DialogManager, new_index: int):
     question = await repo.questions.get_question_by_id(current_id)
     
     # 3. Check for Album
-    images = []
-    if question.image_file_id:
-        images.append(question.image_file_id)
-    if question.images:
-        for img in question.images:
-            if img not in images:
-                images.append(img)
-        
+    images = get_question_images(question)
+
     if len(images) > 1:
         chat_id = dm.middleware_data.get("event_chat").id
-        
-        # BUG FIX: Delete previous dialog message
+
+        # Delete previous dialog message
         try:
-             stack = dm.current_stack()
-             if stack and stack.last_message_id:
-                 await bot.delete_message(chat_id, stack.last_message_id)
+            stack = dm.current_stack()
+            if stack and stack.last_message_id:
+                await bot.delete_message(chat_id, stack.last_message_id)
         except Exception:
-            pass
+            logger.debug("Could not delete previous dialog message")
 
         album_ids = await AlbumManager.send_album(bot, chat_id, images, caption=None)
         dm.dialog_data["album_message_ids"] = album_ids
@@ -769,19 +579,19 @@ async def update_review_view(dm: DialogManager, new_index: int):
     else:
         dm.show_mode = ShowMode.EDIT
 
-async def on_review_next(c: Any, b: Button, dm: DialogManager):
+async def on_review_next(c: Any, b: Button, dm: DialogManager) -> None:
     idx = dm.dialog_data.get("review_index", 0)
     await update_review_view(dm, idx + 1)
 
-async def on_review_prev(c: Any, b: Button, dm: DialogManager):
+async def on_review_prev(c: Any, b: Button, dm: DialogManager) -> None:
     idx = dm.dialog_data.get("review_index", 0)
     await update_review_view(dm, idx - 1)
 
-async def on_start_review(c: Any, b: Button, dm: DialogManager):
+async def on_start_review(c: Any, b: Button, dm: DialogManager) -> None:
     await update_review_view(dm, 0)
     await dm.switch_to(SimulationSG.review)
 
-async def on_show_materials(c: Any, b: Button, dm: DialogManager):
+async def on_show_materials(c: Any, b: Button, dm: DialogManager) -> None:
     current = dm.dialog_data.get("show_materials", False)
     dm.dialog_data["show_materials"] = not current
     
@@ -789,7 +599,7 @@ async def on_show_materials(c: Any, b: Button, dm: DialogManager):
     curr_idx = dm.dialog_data.get("current_index", 0)
     await update_question_view(dm, curr_idx)
 
-async def on_quit_review(c: Any, b: Button, dm: DialogManager):
+async def on_quit_review(c: Any, b: Button, dm: DialogManager) -> None:
     # Cleanup album
     bot = dm.middleware_data.get("bot")
     old_album_ids = dm.dialog_data.get("album_message_ids")
@@ -800,12 +610,12 @@ async def on_quit_review(c: Any, b: Button, dm: DialogManager):
     await dm.done()
 
 
-async def on_show_explanation(c: Any, b: Button, dm: DialogManager):
+async def on_show_explanation(c: Any, b: Button, dm: DialogManager) -> None:
     # Toggle explanation visibility
     current = dm.dialog_data.get("show_explanation", False)
     dm.dialog_data["show_explanation"] = not current
 
-async def on_open_nav(c: Any, b: Button, dm: DialogManager):
+async def on_open_nav(c: Any, b: Button, dm: DialogManager) -> None:
     # Determine source mode (question or review)
     # We can check current state or just look at stack?
     state = dm.current_context().state
@@ -816,7 +626,7 @@ async def on_open_nav(c: Any, b: Button, dm: DialogManager):
         
     await dm.switch_to(SimulationSG.navigation)
 
-async def on_nav_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
+async def on_nav_selected(c: Any, w: Any, dm: DialogManager, item_id: str) -> None:
     idx = int(item_id)
     mode = dm.dialog_data.get("nav_mode", "question")
     
@@ -827,7 +637,7 @@ async def on_nav_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
         await update_review_view(dm, idx)
         await dm.switch_to(SimulationSG.review)
 
-async def on_nav_back(c: Any, b: Button, dm: DialogManager):
+async def on_nav_back(c: Any, b: Button, dm: DialogManager) -> None:
     mode = dm.dialog_data.get("nav_mode", "question")
     if mode == "question":
         await dm.switch_to(SimulationSG.question)

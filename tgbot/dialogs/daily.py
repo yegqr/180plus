@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import CallbackQuery, Message
 from aiogram_dialog import Dialog, Window, DialogManager
@@ -12,7 +14,7 @@ class DailySG(StatesGroup):
     input = State()
     result = State()
 
-async def check_answer(message: Message, widget: TextInput, dialog_manager: DialogManager, text: str):
+async def check_answer(message: Message, widget: TextInput, dialog_manager: DialogManager, text: str) -> None:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     start_data = dialog_manager.start_data
     qid = start_data.get("qid")
@@ -35,7 +37,7 @@ async def check_answer(message: Message, widget: TextInput, dialog_manager: Dial
         
     await dialog_manager.switch_to(DailySG.result)
 
-async def to_main_menu(callback: CallbackQuery, button: Button, dialog_manager: DialogManager):
+async def to_main_menu(callback: CallbackQuery, button: Button, dialog_manager: DialogManager) -> None:
     await dialog_manager.start(MainSG.menu)
 
 daily_dialog = Dialog(

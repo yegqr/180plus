@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 from aiogram import F
 from aiogram.types import Message, ContentType
@@ -19,7 +21,7 @@ class BroadcastSG(StatesGroup):
 
 # --- Getters ---
 
-async def get_targets(dialog_manager: DialogManager, **kwargs):
+async def get_targets(dialog_manager: DialogManager, **kwargs) -> dict:
     return {
         "targets": [
             ("👥 Усі користувачі", "all"),
@@ -34,7 +36,7 @@ async def get_targets(dialog_manager: DialogManager, **kwargs):
         ]
     }
 
-async def get_preview(dialog_manager: DialogManager, **kwargs):
+async def get_preview(dialog_manager: DialogManager, **kwargs) -> dict:
     from aiogram_dialog.api.entities import MediaAttachment, MediaId
     
     data = dialog_manager.dialog_data
@@ -71,7 +73,7 @@ async def get_preview(dialog_manager: DialogManager, **kwargs):
 
 # --- Handlers ---
 
-async def on_target_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
+async def on_target_selected(c: Any, w: Any, dm: DialogManager, item_id: str) -> None:
     repo: RequestsRepo = dm.middleware_data.get("repo")
     
     # Get count to show expected reach (optional, but good UX)
@@ -90,7 +92,7 @@ async def on_target_selected(c: Any, w: Any, dm: DialogManager, item_id: str):
     
     await dm.switch_to(BroadcastSG.content)
 
-async def on_content_input(message: Message, widget: Any, dm: DialogManager):
+async def on_content_input(message: Message, widget: Any, dm: DialogManager) -> None:
     # Store the message itself for copying
     dm.dialog_data["from_chat_id"] = message.chat.id
     dm.dialog_data["message_id"] = message.message_id
@@ -107,7 +109,7 @@ async def on_content_input(message: Message, widget: Any, dm: DialogManager):
 
     await dm.switch_to(BroadcastSG.confirm)
 
-async def start_broadcast(c: Any, b: Button, dm: DialogManager):
+async def start_broadcast(c: Any, b: Button, dm: DialogManager) -> None:
     repo: RequestsRepo = dm.middleware_data.get("repo")
     bot = dm.middleware_data.get("bot")
     

@@ -17,6 +17,14 @@ from infrastructure.database.models import Question
 from infrastructure.database.repo.requests import RequestsRepo
 from .broadcasting import BroadcastSG
 from tgbot.services.album_manager import AlbumManager
+from tgbot.misc.constants import (
+    SUBJECT_LABELS,
+    ALBUM_WAIT_SECONDS,
+    JOIN_REQUEST_DELAY,
+    TG_CAPTION_SAFE_LIMIT,
+    TG_TEXT_SAFE_LIMIT,
+)
+from tgbot.misc.utils import get_question_images, parse_question_caption
 import asyncio
 
 # Buffer: {media_group_id: {"meta": dict, "images": list[str], "task": asyncio.Task}}
@@ -48,8 +56,6 @@ class AdminSG(StatesGroup):
     delete_session_confirm = State()
     edit_session_year = State()
     edit_session_name = State()
-
-UKR_LETTERS = "АБВГДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ"
 
 # --- Getters ---
 
@@ -113,13 +119,7 @@ async def get_admins_list(dialog_manager: DialogManager, **kwargs):
 
 async def get_admin_subjects(dialog_manager: DialogManager, **kwargs):
     return {
-        "subjects": [
-            ("Math 🔢", "math"),
-            ("History 🇺🇦", "hist"),
-            ("🇺🇦 Mova", "mova"),
-            ("English 🇬🇧", "eng"),
-            ("Physics 🧲", "physics")
-        ]
+        "subjects": [(label, slug) for slug, label in SUBJECT_LABELS.items()]
     }
 
 async def get_admin_years(dialog_manager: DialogManager, **kwargs):
@@ -178,8 +178,8 @@ async def get_question_detail(dialog_manager: DialogManager, **kwargs):
     if show_expl and raw_explanation:
         explanation_safe = html.escape(raw_explanation)
         # Identify if total length exceeds caption limit
-        total_len = len(str(ans_text)) + len(explanation_safe) + 200 
-        is_long_text = total_len > 900
+        total_len = len(str(ans_text)) + len(explanation_safe) + 200
+        is_long_text = total_len > TG_CAPTION_SAFE_LIMIT
     
     # Categories Logic
     categories_text = "—"
@@ -208,15 +208,12 @@ async def get_question_detail(dialog_manager: DialogManager, **kwargs):
     
     
     if show_image and is_long_text and show_expl:
-        # Truncate explanation to fit in caption
-        limit = 800 - len(str(ans_text))
+        limit = TG_CAPTION_SAFE_LIMIT - len(str(ans_text))
         if explanation_safe and len(explanation_safe) > limit:
             explanation_safe = explanation_safe[:limit] + "...\n(<i>текст обрізано, натисніть '📝 Показати текст'</i>)"
-    
-    # Even if NOT showing image (text mode), message can be too long (4096 chars).
-    # If explanation is extremely huge, we must truncate it too to avoid crash.
-    if not show_image and explanation_safe and len(explanation_safe) > 3500:
-         explanation_safe = explanation_safe[:3500] + "...\n(<i>текст занадто довгий для Telegram</i>)"
+
+    if not show_image and explanation_safe and len(explanation_safe) > TG_TEXT_SAFE_LIMIT:
+        explanation_safe = explanation_safe[:TG_TEXT_SAFE_LIMIT] + "...\n(<i>текст занадто довгий для Telegram</i>)"
 
     return {
         "q": question, 
@@ -275,14 +272,7 @@ async def get_material_upload_data(dialog_manager: DialogManager, **kwargs):
     material = await repo.materials.get_by_subject(subject)
     images = material.images if material else []
     
-    subject_map = {
-        "math": "Math 🔢",
-        "hist": "History 🇺🇦",
-        "mova": "🇺🇦 Mova",
-        "eng": "English 🇬🇧",
-        "physics": "Physics 🧲"
-    }
-    subj_label = subject_map.get(subject, subject)
+    subj_label = SUBJECT_LABELS.get(subject, subject)
 
     return {
         "subject": subject,
@@ -344,7 +334,7 @@ async def on_approve_all(c: Any, b: Button, dm: DialogManager):
         try:
             await bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
             success_count += 1
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(JOIN_REQUEST_DELAY)
         except Exception:
             pass
             
@@ -496,16 +486,9 @@ async def on_edit_q(c: Any, b: Button, dm: DialogManager):
 
     await dm.switch_to(AdminSG.upload_new)
 
-ALBUM_BUFFER = {} # Global buffer for media groups
-import asyncio
-from infrastructure.database.repo.requests import RequestsRepo
-from tgbot.config import Config
-from aiogram.types import Message
-from typing import Any
-
 async def delayed_album_save(media_group_id: str, repo: RequestsRepo, message: Message, config: Config):
-    await asyncio.sleep(4.0)  # Wait for all photos to arrive
-    
+    await asyncio.sleep(ALBUM_WAIT_SECONDS)  # Wait for all photos to arrive
+
     data = ALBUM_BUFFER.pop(media_group_id, None)
     if not data:
         return
@@ -513,7 +496,7 @@ async def delayed_album_save(media_group_id: str, repo: RequestsRepo, message: M
     meta = data["meta"]
     images = data["images"]     # List of file_ids
     msg_ids = data["msg_ids"]   # List of message_ids to delete
-    
+
     bot = message.bot
     chat_id = message.chat.id
 
@@ -537,7 +520,8 @@ async def delayed_album_save(media_group_id: str, repo: RequestsRepo, message: M
                  for mid in msg_ids:
                      try:
                          await bot.delete_message(chat_id, mid)
-                     except: pass
+                     except Exception:
+                         pass
         except Exception as e:
             logger.warning(f"Failed to delete uploads: {e}")
 
@@ -621,40 +605,15 @@ async def on_upload_photo(message: Message, widget: Any, dialog_manager: DialogM
 
         # Parse Metadata
         try:
-            parts = [p.strip() for p in message.caption.split("|")]
-            subj_str, year_str, sess_str, num_str, type_str, opts_str, ans_str = parts
-            
-            meta = {
-                "subject": subj_str.lower(),
-                "year": int(year_str),
-                "session": sess_str,
-                "q_number": int(num_str),
-                "q_type": type_str.lower().strip(),
-                "weight": 1,
-                "correct_answer": {}
-            }
-            
-            # Helper for correct answer parsing
-            if meta["q_type"] == "choice":
-                meta["correct_answer"] = {"answer": ans_str.strip().upper(), "options": opts_str}
-            elif meta["q_type"] == "short":
-                meta["correct_answer"] = {"answer": ans_str.replace(",", ".").strip()}
-            elif meta["q_type"] == "match":
-                import re
-                matches = re.findall(r"(\d+)\s*[-]?\s*([а-яА-Яa-zA-ZєЄіІїЇґҐ])", ans_str)
-                meta["correct_answer"] = {"pairs": {num: letter.upper() for num, letter in matches}, "options": opts_str}
-                meta["weight"] = len(meta["correct_answer"]["pairs"])
-            
-            # Initialize Buffer
+            meta = parse_question_caption(message.caption)
             ALBUM_BUFFER[media_group_id] = {
                 "meta": meta,
                 "images": [file_id],
                 "msg_ids": [msg_id],
                 "task": asyncio.create_task(delayed_album_save(media_group_id, repo, message, config))
             }
-            
-        except ValueError:
-            await message.reply("❌ Помилка формату! Перевірте дані.\nПриклад: math | 2024 | main | 1 | choice | 5 | A")
+        except ValueError as e:
+            await message.reply(f"❌ Помилка формату: {e}\nПриклад: math | 2024 | main | 1 | choice | 5 | А")
         except Exception as e:
             await message.reply(f"❌ Помилка парсингу: {e}")
 
@@ -665,27 +624,14 @@ async def on_upload_photo(message: Message, widget: Any, dialog_manager: DialogM
             return
             
         try:
-            parts = [p.strip() for p in message.caption.split("|")]
-            subj_str, year_str, sess_str, num_str, type_str, opts_str, ans_str = parts
-            
-            # ... Parsing logic duplicated ...
-            subject = subj_str.lower()
-            year = int(year_str)
-            session = sess_str
-            q_number = int(num_str)
-            q_type = type_str.lower().strip()
-            
-            weight = 1
-            correct_answer = {}
-            if q_type == "choice":
-                correct_answer = {"answer": ans_str.strip().upper(), "options": opts_str}
-            elif q_type == "short":
-                correct_answer = {"answer": ans_str.replace(",", ".").strip()}
-            elif q_type == "match":
-                import re
-                matches = re.findall(r"(\d+)\s*[-]?\s*([а-яА-Яa-zA-ZєЄіІїЇґҐ])", ans_str)
-                correct_answer = {"pairs": {num: letter.upper() for num, letter in matches}, "options": opts_str}
-                weight = len(correct_answer["pairs"])
+            meta = parse_question_caption(message.caption)
+            subject = meta["subject"]
+            year = meta["year"]
+            session = meta["session"]
+            q_number = meta["q_number"]
+            q_type = meta["q_type"]
+            correct_answer = meta["correct_answer"]
+            weight = meta["weight"]
 
             await repo.questions.upsert_question(
                 subject=subject, year=year, session=session, q_number=q_number,
@@ -697,7 +643,8 @@ async def on_upload_photo(message: Message, widget: Any, dialog_manager: DialogM
             # Auto-Delete User Upload
             try:
                 await message.delete()
-            except: pass
+            except Exception:
+                pass
 
             # Trigger Gemini
             db_key = await repo.settings.get_setting("gemini_api_key")
@@ -802,34 +749,25 @@ async def on_regenerate_explanation(c: Any, b: Button, dm: DialogManager):
                 f = await bot.get_file(img_id)
                 fb = await bot.download_file(f.file_path)
                 images_data.append(fb.read())
-            
+
             service = GeminiService(config_key)
             result_data = await service.generate_explanation(images_data, q_text, subject=subject)
             text = result_data.get("explanation", "")
             cats = result_data.get("categories", [])
-            
-            # Create NEW DB session to save
-            from infrastructure.database.setup import create_engine, create_session_pool
-            from tgbot.config import load_config
-            # This is heavy to reload config. Pass DB URL?
-            # We can reuse the engine if we had access to app state.
-            # Hack: load config again for DB.
-            cfg = load_config(".env") 
-            engine = create_engine(cfg.db)
-            session_pool = create_session_pool(engine)
-            
-            async with session_pool() as session:
-                 stmt = select(Question).where(Question.id == q_id)
-                 res = await session.execute(stmt)
-                 q = res.scalar_one_or_none()
-                 if q:
-                     q.explanation = text
-                     if cats:
-                         q.categories = cats
-                     await session.commit()
-            
+
+            # Use session_pool attached to the bot instance (set at startup in bot.py)
+            async with bot.session_pool() as session:
+                stmt = select(Question).where(Question.id == q_id)
+                res = await session.execute(stmt)
+                q = res.scalar_one_or_none()
+                if q:
+                    q.explanation = text
+                    if cats:
+                        q.categories = cats
+                    await session.commit()
+
             await bot.send_message(c.from_user.id, f"✅ Пояснення та категорії оновлено для Q#{question.q_number}!")
-            
+
         except Exception as ex:
             logger.error(f"Regen Error: {ex}")
             await bot.send_message(c.from_user.id, f"❌ Помилка генерації для Q#{question.q_number}")

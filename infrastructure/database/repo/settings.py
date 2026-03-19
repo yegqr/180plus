@@ -1,4 +1,5 @@
-from typing import Optional
+from __future__ import annotations
+
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
@@ -7,16 +8,16 @@ from infrastructure.database.repo.base import BaseRepo
 
 
 class SettingsRepo(BaseRepo):
-    async def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+    async def get_setting(self, key: str, default: str | None = None) -> str | None:
         stmt = select(Setting.value).where(Setting.key == key)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() or default
 
-    async def set_setting(self, key: str, value: str):
+    async def set_setting(self, key: str, value: str) -> None:
         stmt = insert(Setting).values(key=key, value=value)
         update_stmt = stmt.on_conflict_do_update(
             index_elements=[Setting.key],
-            set_=dict(value=value)
+            set_=dict(value=value),
         )
         await self.session.execute(update_stmt)
         await self.session.commit()

@@ -19,7 +19,7 @@ daily_router = Router()
 # format: daily:qid:answer_val
 
 @daily_router.callback_query(F.data.startswith("daily:"))
-async def on_daily_answer(call: CallbackQuery, bot: Bot, repo: RequestsRepo, dialog_manager: DialogManager = None):
+async def on_daily_answer(call: CallbackQuery, bot: Bot, repo: RequestsRepo, dialog_manager: DialogManager = None) -> None:
     # Check for Home button first
     if call.data == "daily:menu:home":
         # Start main menu if possible

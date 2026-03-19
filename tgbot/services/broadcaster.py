@@ -4,10 +4,9 @@ from typing import Union
 
 from aiogram import Bot
 from aiogram import exceptions
-from aiogram.types import InlineKeyboardMarkup
-
-
 from aiogram.types import InlineKeyboardMarkup, InputMediaPhoto
+
+from tgbot.misc.constants import BROADCAST_SEND_DELAY
 
 async def send_message(
     bot: Bot,
@@ -78,7 +77,7 @@ async def send_message(
         return True
     return False
 
-async def _deactivate_user(bot: Bot, user_id: Union[int, str]):
+async def _deactivate_user(bot: Bot, user_id: Union[int, str]) -> None:
     if hasattr(bot, "session_pool"):
         try:
             from sqlalchemy import update
@@ -119,9 +118,7 @@ async def broadcast(
                 bot, user_id, text, disable_notification, reply_markup, photo
             ):
                 count += 1
-            await asyncio.sleep(
-                0.05
-            )  # 20 messages per second (Limit: 30 messages per second)
+            await asyncio.sleep(BROADCAST_SEND_DELAY)  # 20 msg/s (Limit: 30 msg/s)
     finally:
         logging.info(f"{count} messages successful sent.")
 

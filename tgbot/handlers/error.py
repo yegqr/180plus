@@ -7,7 +7,7 @@ from aiogram_dialog import DialogManager
 error_router = Router()
 
 @error_router.error()
-async def on_error(event: ErrorEvent, dialog_manager: DialogManager):
+async def on_error(event: ErrorEvent, dialog_manager: DialogManager) -> None:
     if isinstance(event.exception, (OutdatedIntent, UnknownIntent)):
         logging.error(f"Intent error handled: {event.exception}")
         if event.update.callback_query:

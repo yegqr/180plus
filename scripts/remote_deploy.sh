@@ -36,6 +36,26 @@ echo "SERVER_IP=$SERVER_IP" > "$CONFIG_FILE"
 echo "SERVER_USER=$SERVER_USER" >> "$CONFIG_FILE"
 echo "TARGET_DIR=$TARGET_DIR" >> "$CONFIG_FILE"
 
+echo -e "${YELLOW}🐙 Committing and pushing to GitHub...${NC}"
+git add .
+if git diff-index --quiet HEAD --; then
+    echo -e "${GREEN}📝 No changes to commit.${NC}"
+else
+    # Auto-commit with timestamp or let user input message if interactive
+    # For a purely automated script, we'll use an auto-message.
+    COMMIT_MSG="Auto-deploy commit: $(date +'%Y-%m-%d %H:%M:%S')"
+    git commit -m "$COMMIT_MSG"
+    
+    echo -e "${YELLOW}⬆️  Pushing to remote repository...${NC}"
+    git push
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}❌ Failed to push to GitHub. Continuing deployment anyway...${NC}"
+    else
+        echo -e "${GREEN}✅ Pushed to GitHub successfully!${NC}"
+    fi
+fi
+echo ""
+
 echo -e "${YELLOW}🛸 Verifying SSH connection...${NC}"
 echo -e "${YELLOW}ℹ️  If your password is expired, you will be asked to change it now.${NC}"
 

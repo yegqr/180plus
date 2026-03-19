@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 
 from aiogram.fsm.state import StatesGroup, State
@@ -16,7 +18,7 @@ from tgbot.services.topic_manager import TopicManager
 class MainSG(StatesGroup):
     menu = State()
 
-async def get_user_data(dialog_manager: DialogManager, **kwargs):
+async def get_user_data(dialog_manager: DialogManager, **kwargs) -> dict:
     user: User = dialog_manager.middleware_data.get("user")
     
     if not user:
@@ -42,23 +44,23 @@ async def get_user_data(dialog_manager: DialogManager, **kwargs):
 from tgbot.dialogs.calculator import CalculatorSG
 from aiogram.types import CallbackQuery
 
-async def on_calc(c: CallbackQuery, button: Button, manager: DialogManager):
+async def on_calc(c: CallbackQuery, button: Button, manager: DialogManager) -> None:
     await manager.start(CalculatorSG.main, mode=StartMode.NORMAL)
 
-async def on_admin_panel(callback: Any, button: Button, dialog_manager: DialogManager):
+async def on_admin_panel(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
     await dialog_manager.start(AdminSG.menu, mode=StartMode.NORMAL)
 
-async def on_stats(callback: Any, button: Button, dialog_manager: DialogManager):
+async def on_stats(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
     from .stats import StatsSG
     await dialog_manager.start(StatsSG.main, mode=StartMode.NORMAL)
 
-async def on_simulation(callback: Any, button: Button, dialog_manager: DialogManager):
-    await dialog_manager.start(SimulationSG.select_year, mode=StartMode.NORMAL) 
+async def on_simulation(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
+    await dialog_manager.start(SimulationSG.select_year, mode=StartMode.NORMAL)
 
-async def on_random(callback: Any, button: Button, dialog_manager: DialogManager):
+async def on_random(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
     await dialog_manager.start(RandomSG.question, mode=StartMode.NORMAL)
 
-async def on_subject_selected(c: CallbackQuery, widget: Any, manager: DialogManager, item_id: str):
+async def on_subject_selected(c: CallbackQuery, widget: Any, manager: DialogManager, item_id: str) -> None:
     repo: RequestsRepo = manager.middleware_data.get("repo")
     user: User = manager.middleware_data.get("user")
     

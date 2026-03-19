@@ -12,5 +12,5 @@ admin_router.message.filter(AdminFilter())
 
 
 @admin_router.message(Command("admin_upload"))
-async def admin_upload(message: Message, dialog_manager: DialogManager):
+async def admin_upload(message: Message, dialog_manager: DialogManager) -> None:
     await dialog_manager.start(AdminSG.subjects, mode=StartMode.RESET_STACK)

@@ -10,11 +10,11 @@ join_router = Router()
 
 @join_router.chat_join_request()
 async def handle_join_request(
-    update: ChatJoinRequest, 
-    bot: Bot, 
-    repo: RequestsRepo, 
-    dialog_bg_factory: BgManagerFactory
-):
+    update: ChatJoinRequest,
+    bot: Bot,
+    repo: RequestsRepo,
+    dialog_bg_factory: BgManagerFactory,
+) -> None:
     # 1. Register or update user
     user = await repo.users.get_or_create_user(
         user_id=update.from_user.id,
