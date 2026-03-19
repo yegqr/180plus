@@ -64,3 +64,6 @@ venv.bak/
 cache/
 .deploy_config
 .claude/
+
+# Database backups
+*.sql

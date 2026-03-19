@@ -44,6 +44,20 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
+# 4. Safety check: abort if postgres major version changed with existing data volume
+COMPOSE_PG_IMAGE=$(grep 'image: postgres:' docker-compose.yml | awk '{print $2}' | head -1)
+RUNNING_PG_IMAGE=$(docker inspect nmt_bot_db --format='{{.Config.Image}}' 2>/dev/null)
+if [ -n "$RUNNING_PG_IMAGE" ] && [ "$RUNNING_PG_IMAGE" != "$COMPOSE_PG_IMAGE" ]; then
+    RUNNING_MAJOR=$(echo "$RUNNING_PG_IMAGE" | grep -oP 'postgres:\K[0-9]+')
+    COMPOSE_MAJOR=$(echo "$COMPOSE_PG_IMAGE" | grep -oP 'postgres:\K[0-9]+')
+    if [ -n "$RUNNING_MAJOR" ] && [ -n "$COMPOSE_MAJOR" ] && [ "$RUNNING_MAJOR" != "$COMPOSE_MAJOR" ]; then
+        echo -e "${RED}❌ НЕБЕЗПЕЧНО: Мажорна версія PostgreSQL змінилась з $RUNNING_MAJOR на $COMPOSE_MAJOR!${NC}"
+        echo -e "${YELLOW}   Автоматичний деплой заборонено — потрібен pg_dump/restore вручну.${NC}"
+        echo -e "${YELLOW}   Інструкція: https://github.com/yegqr/180plus/blob/main/docs/DATABASE.md${NC}"
+        exit 1
+    fi
+fi
+
 # 4. Build image and start DB + Redis first
 echo -e "${YELLOW}🏗️  Building image and starting infrastructure...${NC}"
 docker compose build
