@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l /Users/yegqr/NMT-bot/tgbot/dialogs/*.py)",
+      "Bash(find /Users/yegqr/NMT-bot -type f -name \"*.py\" ! -path \"*/.venv/*\" ! -path \"*/__pycache__/*\" -exec wc -l {} +)",
+      "Bash(grep -r \"TODO\\\\|FIXME\\\\|HACK\\\\|XXX\" /Users/yegqr/NMT-bot --include=\"*.py\" ! -path \"*/.venv/*\")"
+    ]
+  }
+}

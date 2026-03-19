@@ -1,0 +1,3 @@
+SERVER_IP=89.167.5.163
+SERVER_USER=root
+TARGET_DIR=/root/nmt-bot

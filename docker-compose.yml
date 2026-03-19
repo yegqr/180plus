@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nmt_bot:latest
+    container_name: nmt_bot_app
+    restart: always
+    stop_signal: SIGINT
+    env_file:
+      - ".env"
+    environment:
+      # Override .env values for Docker internal networking
+      - DB_HOST=pg_database
+      - DB_PORT=5432
+      - REDIS_HOST=redis_cache
+      - REDIS_PORT=6389
+    depends_on:
+      - pg_database
+      - redis_cache
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  pg_database:
+    image: postgres:13-alpine
+    container_name: nmt_bot_db
+    restart: always
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    env_file:
+      - '.env'
+    ports:
+      - "5439:5432"
+    command: "postgres -c max_connections=150 -c shared_buffers=512MB -c effective_cache_size=1536MB -c maintenance_work_mem=128MB -c checkpoint_completion_target=0.9 -c wal_buffers=16MB -c default_statistics_target=100 -c random_page_cost=1.1 -c effective_io_concurrency=200 -c work_mem=3495kB -c min_wal_size=1GB -c max_wal_size=4GB -c max_worker_processes=2 -c max_parallel_workers_per_gather=1 -c max_parallel_workers=2 -c max_parallel_maintenance_workers=1"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis_cache:
+    image: redis:6.2-alpine
+    container_name: nmt_bot_redis
+    restart: always
+    command: redis-server --port 6389 --save 20 1 --loglevel warning --requirepass someredispass
+    ports:
+      - "6389:6389"
+    volumes:
+      - cache_data:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pgdata:
+  cache_data:

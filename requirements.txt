@@ -1,0 +1,18 @@
+aiogram>=3.17.0
+environs>=11.0.0
+redis
+betterlogging
+
+# # For enabling api:
+# backoff
+# ujson
+# yarl
+
+aiogram-dialog>=2.2.0
+
+# For PostgreSQL sqlalchemy + alembic:
+sqlalchemy~=2.0
+alembic~=1.0
+asyncpg
+google-genai
+apscheduler
