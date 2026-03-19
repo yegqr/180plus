@@ -95,7 +95,7 @@ def get_windows() -> list:
             Button(Const("🔙 Назад"), id="back_menu",
                    on_click=lambda c, b, d: d.switch_to(AdminSG.menu)),
             state=AdminSG.materials_subjects,
-            getter=lambda dm, **kw: {"subjects": [(label, slug) for slug, label in SUBJECT_LABELS.items()]},
+            getter=lambda **kw: {"subjects": [(label, slug) for slug, label in SUBJECT_LABELS.items()]},
         ),
         Window(
             Format(
