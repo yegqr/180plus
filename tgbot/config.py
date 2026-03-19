@@ -60,7 +60,7 @@ class DbConfig:
             port=port,
             database=self.database,
         )
-        return uri.render_as_string(hide_password=True)
+        return uri.render_as_string(hide_password=False)
 
     @staticmethod
     def from_env(env: Env) -> DbConfig:
