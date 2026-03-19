@@ -6,9 +6,17 @@ from aiogram import Bot
 from aiogram import exceptions
 from aiogram.types import InlineKeyboardMarkup, InputMediaPhoto
 
-from tgbot.misc.constants import BROADCAST_SEND_DELAY
+from tgbot.misc.constants import BROADCAST_CHUNK_SIZE, BROADCAST_CHUNK_DELAY
 
 _MAX_RETRIES = 3
+
+
+def _inc_broadcast_metric(status: str) -> None:
+    try:
+        from tgbot.metrics import BROADCAST_SENT
+        BROADCAST_SENT.labels(status=status).inc()
+    except Exception:
+        pass
 
 
 async def send_message(
@@ -18,6 +26,7 @@ async def send_message(
     disable_notification: bool = False,
     reply_markup: InlineKeyboardMarkup = None,
     photo: str | list[str] | None = None,
+    session_pool=None,
 ) -> bool:
     """Safe message sender with exponential-backoff retry on rate limits (max 3 attempts)."""
     for attempt in range(_MAX_RETRIES):
@@ -52,6 +61,7 @@ async def send_message(
                     disable_notification=disable_notification,
                     reply_markup=reply_markup,
                 )
+            _inc_broadcast_metric("sent")
             return True
 
         except exceptions.TelegramRetryAfter as e:
@@ -59,6 +69,7 @@ async def send_message(
                 logging.error(
                     f"Target [ID:{user_id}]: Rate limit hit, giving up after {_MAX_RETRIES} retries."
                 )
+                _inc_broadcast_metric("failed")
                 return False
             logging.warning(
                 f"Target [ID:{user_id}]: Flood limit. Sleep {e.retry_after}s "
@@ -69,39 +80,46 @@ async def send_message(
         except exceptions.TelegramBadRequest as e:
             logging.error(f"Target [ID:{user_id}]: Bad Request {e.message}")
             if "chat not found" in e.message.lower() or "user not found" in e.message.lower():
-                await _deactivate_user(bot, user_id)
+                await _deactivate_user(user_id, session_pool)
+            _inc_broadcast_metric("failed")
             return False
 
         except exceptions.TelegramForbiddenError:
             logging.error(f"Target [ID:{user_id}]: User Blocked Bot")
-            await _deactivate_user(bot, user_id)
+            await _deactivate_user(user_id, session_pool)
+            _inc_broadcast_metric("failed")
             return False
 
         except exceptions.TelegramAPIError as e:
             logging.error(f"Target [ID:{user_id}]: Failed with API error: {e}")
+            _inc_broadcast_metric("failed")
             return False
 
         except Exception as e:
             logging.error(f"Target [ID:{user_id}]: Unexpected error: {e}")
+            _inc_broadcast_metric("failed")
             return False
 
+    _inc_broadcast_metric("failed")
     return False
 
-async def _deactivate_user(bot: Bot, user_id: Union[int, str]) -> None:
-    if hasattr(bot, "session_pool"):
-        try:
-            from sqlalchemy import update
-            from infrastructure.database.models import User
-            
-            async with bot.session_pool() as session:
-                # We need to coerce user_id to int
-                uid = int(user_id)
-                stmt = update(User).where(User.user_id == uid).values(active=False)
-                await session.execute(stmt)
-                await session.commit()
-                logging.info(f"User {uid} marked as inactive in DB.")
-        except Exception as e:
-            logging.warning(f"Failed to deactivate user {user_id}: {e}")
+
+async def _deactivate_user(user_id: Union[int, str], session_pool) -> None:
+    """Mark user as inactive in DB. session_pool must be provided explicitly."""
+    if session_pool is None:
+        return
+    try:
+        from sqlalchemy import update
+        from infrastructure.database.models import User
+
+        async with session_pool() as session:
+            uid = int(user_id)
+            stmt = update(User).where(User.user_id == uid).values(active=False)
+            await session.execute(stmt)
+            await session.commit()
+            logging.info(f"User {uid} marked as inactive in DB.")
+    except Exception as e:
+        logging.warning(f"Failed to deactivate user {user_id}: {e}")
 
 
 async def broadcast(
@@ -110,26 +128,35 @@ async def broadcast(
     text: str,
     disable_notification: bool = False,
     reply_markup: InlineKeyboardMarkup = None,
-    photo: str | list[str] | None = None
+    photo: str | list[str] | None = None,
+    session_pool=None,
 ) -> int:
     """
-    Simple broadcaster.
-    :param bot: Bot instance.
-    :param users: List of users.
-    :param text: Text of the message.
-    :param disable_notification: Disable notification or not.
-    :param reply_markup: Reply markup.
-    :return: Count of messages.
+    Chunk-based broadcaster: sends BROADCAST_CHUNK_SIZE messages concurrently,
+    then sleeps BROADCAST_CHUNK_DELAY seconds before the next chunk.
+    Effective rate: 25 msg/s — safely under Telegram's 30 msg/s global cap.
+
+    Pass session_pool to enable automatic user deactivation on TelegramForbiddenError
+    or 'chat not found' errors.
     """
     count = 0
+    chunks = [
+        users[i : i + BROADCAST_CHUNK_SIZE]
+        for i in range(0, len(users), BROADCAST_CHUNK_SIZE)
+    ]
     try:
-        for user_id in users:
-            if await send_message(
-                bot, user_id, text, disable_notification, reply_markup, photo
-            ):
-                count += 1
-            await asyncio.sleep(BROADCAST_SEND_DELAY)  # 20 msg/s (Limit: 30 msg/s)
+        for idx, chunk in enumerate(chunks):
+            results = await asyncio.gather(
+                *[
+                    send_message(bot, uid, text, disable_notification, reply_markup, photo, session_pool)
+                    for uid in chunk
+                ],
+                return_exceptions=True,
+            )
+            count += sum(1 for r in results if r is True)
+            if idx < len(chunks) - 1:
+                await asyncio.sleep(BROADCAST_CHUNK_DELAY)
     finally:
-        logging.info(f"{count} messages successful sent.")
+        logging.info(f"{count} messages sent successfully.")
 
     return count

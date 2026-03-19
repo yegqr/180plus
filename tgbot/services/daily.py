@@ -15,7 +15,8 @@ from tgbot.services.broadcaster import broadcast
 from tgbot.misc.constants import (
     SUBJECT_FULL_NAMES,
     DAILY_CHALLENGE_SUBJECTS,
-    BROADCAST_SEND_DELAY,
+    BROADCAST_CHUNK_SIZE,
+    BROADCAST_CHUNK_DELAY,
     DAILY_WINDOW_START_HOUR,
     DAILY_WINDOW_END_HOUR,
 )
@@ -107,10 +108,21 @@ async def broadcast_daily_question() -> None:
 
         images = get_question_images(question)
         count = 0
-        for user in all_users_data:
-            if await _send_daily_to_user(bot, user, selected_subject, images, caption, kb):
-                count += 1
-            await asyncio.sleep(BROADCAST_SEND_DELAY)
+        chunks = [
+            all_users_data[i : i + BROADCAST_CHUNK_SIZE]
+            for i in range(0, len(all_users_data), BROADCAST_CHUNK_SIZE)
+        ]
+        for idx, chunk in enumerate(chunks):
+            results = await asyncio.gather(
+                *[
+                    _send_daily_to_user(bot, user, selected_subject, images, caption, kb)
+                    for user in chunk
+                ],
+                return_exceptions=True,
+            )
+            count += sum(1 for r in results if r is True)
+            if idx < len(chunks) - 1:
+                await asyncio.sleep(BROADCAST_CHUNK_DELAY)
         logger.info(f"Daily Challenge: {count} messages sent successfully.")
 
     except Exception as e:

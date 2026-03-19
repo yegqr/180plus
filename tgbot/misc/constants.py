@@ -45,6 +45,12 @@ ENG_LETTERS: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # Seconds between individual sends during broadcasts (stays under 30 msg/s limit)
 BROADCAST_SEND_DELAY: float = 0.05
 
+# Chunk-based broadcast settings.
+# CHUNK_SIZE concurrent sends per chunk; CHUNK_DELAY seconds between chunks.
+# 25 sends / 1.0 s = 25 msg/s, safely under Telegram's 30 msg/s global cap.
+BROADCAST_CHUNK_SIZE: int = 25
+BROADCAST_CHUNK_DELAY: float = 1.0
+
 # Seconds between join-request approvals
 JOIN_REQUEST_DELAY: float = 0.05
 

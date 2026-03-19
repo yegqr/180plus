@@ -77,8 +77,9 @@ async def on_enable_maintenance_confirm(c: Any, b: Any, dm: DialogManager) -> No
     await c.message.answer("⏳ Активую режим та розсилаю попередження...")
 
     from tgbot.services.broadcaster import broadcast
+    session_pool = dm.middleware_data.get("session_pool")
     users = await repo.users.get_users_for_broadcast("all")
-    count = await broadcast(bot, users, msg)
+    count = await broadcast(bot, users, msg, session_pool=session_pool)
 
     await c.message.answer(f"🚨 Технічні роботи АКТИВОВАНО!\n📢 Сповіщено: {count} користувачів.")
     await dm.switch_to(AdminSG.maintenance)
@@ -103,8 +104,9 @@ async def on_finish_maintenance(message: Message, widget: Any, dm: DialogManager
         pass
 
     from tgbot.services.broadcaster import broadcast
+    session_pool = dm.middleware_data.get("session_pool")
     users = await repo.users.get_users_for_broadcast("all")
-    count = await broadcast(bot, users, text_to_send, reply_markup=_main_menu_kb())
+    count = await broadcast(bot, users, text_to_send, reply_markup=_main_menu_kb(), session_pool=session_pool)
 
     await message.answer(f"✅ Технічні роботи вимкнено! Сповіщено {count} користувачів.")
     await dm.switch_to(AdminSG.maintenance)
@@ -124,8 +126,9 @@ async def on_finish_skip(c: Any, b: Any, dm: DialogManager) -> None:
     await c.message.answer("✅ Роботи завершено! Розсилаю сповіщення...")
 
     from tgbot.services.broadcaster import broadcast
+    session_pool = dm.middleware_data.get("session_pool")
     users = await repo.users.get_users_for_broadcast("all")
-    await broadcast(bot, users, text_to_send, reply_markup=_main_menu_kb())
+    await broadcast(bot, users, text_to_send, reply_markup=_main_menu_kb(), session_pool=session_pool)
 
     await c.message.answer("📢 Сповіщено користувачів.")
     await dm.switch_to(AdminSG.maintenance)

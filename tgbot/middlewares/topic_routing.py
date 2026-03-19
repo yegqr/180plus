@@ -26,7 +26,11 @@ class TopicRoutingMiddleware(BaseMiddleware):
             topic_ids = user.settings.get("topic_ids", {})
             for subj, tid in topic_ids.items():
                 if tid == thread_id:
-                    user.selected_subject = subj
+                    if user.selected_subject != subj:
+                        user.selected_subject = subj
+                        repo = data.get("repo")
+                        if repo:
+                            await repo.users.update_subject(user.user_id, subj)
                     break
 
         return await handler(event, data)

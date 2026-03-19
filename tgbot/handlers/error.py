@@ -22,4 +22,10 @@ async def on_error(event: ErrorEvent, dialog_manager: DialogManager) -> None:
                 pass
         return True
     
+    exc_type = type(event.exception).__name__
+    try:
+        from tgbot.metrics import ERRORS_TOTAL
+        ERRORS_TOTAL.labels(exc_type=exc_type).inc()
+    except Exception:
+        pass
     logging.exception(f"Unhandled error: {event.exception}")

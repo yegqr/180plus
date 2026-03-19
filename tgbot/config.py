@@ -147,6 +147,44 @@ class RedisConfig:
 
 
 @dataclass
+class WebhookConfig:
+    """
+    Webhook configuration. Set USE_WEBHOOK=true to switch from polling.
+
+    Required env vars when USE_WEBHOOK=true:
+      WEBHOOK_URL   — full public URL Telegram will POST to, e.g.
+                      https://bot.example.com/webhook/<TOKEN>
+      WEBHOOK_PATH  — URL path component, e.g. /webhook/<TOKEN>
+
+    Optional:
+      WEBAPP_HOST   — bind host for the aiohttp server (default 0.0.0.0)
+      WEBAPP_PORT   — bind port (default 8080)
+      WEBHOOK_SECRET — secret token sent by Telegram in X-Telegram-Bot-Api-Secret-Token
+    """
+
+    use_webhook: bool = False
+    url: str = ""
+    path: str = ""
+    webapp_host: str = "0.0.0.0"
+    webapp_port: int = 8080
+    secret_token: Optional[str] = None
+
+    @staticmethod
+    def from_env(env: "Env") -> "WebhookConfig":
+        use_webhook = env.bool("USE_WEBHOOK", False)
+        if not use_webhook:
+            return WebhookConfig()
+        return WebhookConfig(
+            use_webhook=True,
+            url=env.str("WEBHOOK_URL", ""),
+            path=env.str("WEBHOOK_PATH", ""),
+            webapp_host=env.str("WEBAPP_HOST", "0.0.0.0"),
+            webapp_port=env.int("WEBAPP_PORT", 8080),
+            secret_token=env.str("WEBHOOK_SECRET", None),
+        )
+
+
+@dataclass
 class Miscellaneous:
     """
     Miscellaneous configuration class.
@@ -158,10 +196,16 @@ class Miscellaneous:
     ----------
     other_params : str, optional
         A string used to hold other various parameters as required (default is None).
+    sentry_dsn : str, optional
+        Sentry DSN for error tracking. Leave empty to disable Sentry.
+    metrics_port : int
+        Port for the Prometheus /metrics HTTP server (default 9090).
     """
 
     onboarding_video: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    sentry_dsn: Optional[str] = None
+    metrics_port: int = 9090
     other_params: str = None
 
 
@@ -182,12 +226,19 @@ class Config:
         Holds the settings specific to the database (default is None).
     redis : Optional[RedisConfig]
         Holds the settings specific to Redis (default is None).
+    webhook : WebhookConfig
+        Holds webhook settings (polling by default).
     """
 
     tg_bot: TgBot
     misc: Miscellaneous
     db: Optional[DbConfig] = None
     redis: Optional[RedisConfig] = None
+    webhook: WebhookConfig = None
+
+    def __post_init__(self):
+        if self.webhook is None:
+            self.webhook = WebhookConfig()
 
 
 def load_config(path: str = None) -> Config:
@@ -205,8 +256,11 @@ def load_config(path: str = None) -> Config:
         tg_bot=TgBot.from_env(env),
         db=DbConfig.from_env(env),
         redis=RedisConfig.from_env(env),
+        webhook=WebhookConfig.from_env(env),
         misc=Miscellaneous(
             onboarding_video=env.str("ONBOARDING_VIDEO", None),
-            gemini_api_key=env.str("GEMINI_API_KEY", None)
+            gemini_api_key=env.str("GEMINI_API_KEY", None),
+            sentry_dsn=env.str("SENTRY_DSN", None),
+            metrics_port=env.int("METRICS_PORT", 9090),
         ),
     )

@@ -12,22 +12,84 @@ services:
     env_file:
       - ".env"
     environment:
-      # Override .env values for Docker internal networking
-      - DB_HOST=pg_database
+      # Route DB traffic through PgBouncer, not directly to PostgreSQL
+      - DB_HOST=pgbouncer
       - DB_PORT=5432
       - REDIS_HOST=redis_cache
       - REDIS_PORT=6389
+    ports:
+      # Expose webhook receiver port. Put Nginx/Caddy in front for TLS.
+      - "8080:8080"
+      # Health check endpoint — internal only
+      - "127.0.0.1:8081:8081"
+      # Prometheus metrics — internal only (bind to localhost on the host)
+      - "127.0.0.1:9090:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     depends_on:
-      - pg_database
-      - redis_cache
+      pgbouncer:
+        condition: service_healthy
+      redis_cache:
+        condition: service_healthy
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
+  # ---------------------------------------------------------------------------
+  # PgBouncer — connection pooler in front of PostgreSQL
+  #
+  # The bot's SQLAlchemy pool (pool_size=10, max_overflow=20) connects here.
+  # PgBouncer multiplexes those onto a much smaller set of real PostgreSQL
+  # server connections (DEFAULT_POOL_SIZE=25), keeping PostgreSQL healthy
+  # under high concurrency.
+  #
+  # POOL_MODE=transaction: server connection is held only for the duration of
+  # one transaction — optimal for asyncio bots that do short DB bursts.
+  # Requires prepared_statement_cache_size=0 in asyncpg (already set in
+  # infrastructure/database/setup.py).
+  # ---------------------------------------------------------------------------
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: nmt_bot_pgbouncer
+    restart: always
+    environment:
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_HOST=pg_database
+      - DB_PORT=5432
+      - DB_NAME=${POSTGRES_DB}
+      - POOL_MODE=transaction
+      - MAX_CLIENT_CONN=1000
+      - DEFAULT_POOL_SIZE=25
+      - MIN_POOL_SIZE=5
+      - RESERVE_POOL_SIZE=5
+      - AUTH_TYPE=scram-sha-256
+      - SERVER_TLS_SSLMODE=disable
+    depends_on:
+      pg_database:
+        condition: service_healthy
+    healthcheck:
+      # pg_isready probes PgBouncer's PostgreSQL-protocol listener.
+      # It verifies PgBouncer is up and accepting connections (no -U needed;
+      # pg_isready sends a startup packet and checks the response code).
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
   pg_database:
-    image: postgres:13-alpine
+    image: postgres:16-alpine
     container_name: nmt_bot_db
     restart: always
     volumes:
@@ -35,8 +97,33 @@ services:
     env_file:
       - '.env'
     ports:
-      - "5439:5432"
-    command: "postgres -c max_connections=150 -c shared_buffers=512MB -c effective_cache_size=1536MB -c maintenance_work_mem=128MB -c checkpoint_completion_target=0.9 -c wal_buffers=16MB -c default_statistics_target=100 -c random_page_cost=1.1 -c effective_io_concurrency=200 -c work_mem=3495kB -c min_wal_size=1GB -c max_wal_size=4GB -c max_worker_processes=2 -c max_parallel_workers_per_gather=1 -c max_parallel_workers=2 -c max_parallel_maintenance_workers=1"
+      - "127.0.0.1:5439:5432"
+    # max_connections=100: PgBouncer is the only client; 100 is generous.
+    # Raised shared_buffers and work_mem for 50k-user workload.
+    command: >
+      postgres
+        -c max_connections=100
+        -c shared_buffers=1GB
+        -c effective_cache_size=3GB
+        -c maintenance_work_mem=256MB
+        -c checkpoint_completion_target=0.9
+        -c wal_buffers=32MB
+        -c default_statistics_target=100
+        -c random_page_cost=1.1
+        -c effective_io_concurrency=200
+        -c work_mem=8MB
+        -c min_wal_size=1GB
+        -c max_wal_size=4GB
+        -c max_worker_processes=4
+        -c max_parallel_workers_per_gather=2
+        -c max_parallel_workers=4
+        -c max_parallel_maintenance_workers=2
+        -c statement_timeout=10000
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     logging:
       driver: "json-file"
       options:
@@ -44,14 +131,19 @@ services:
         max-file: "3"
 
   redis_cache:
-    image: redis:6.2-alpine
+    image: redis:7-alpine
     container_name: nmt_bot_redis
     restart: always
-    command: redis-server --port 6389 --save 20 1 --loglevel warning --requirepass someredispass
+    command: redis-server --port 6389 --save 20 1 --loglevel warning --requirepass ${REDIS_PASSWORD}
     ports:
-      - "6389:6389"
+      - "127.0.0.1:6389:6389"
     volumes:
       - cache_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 6389 -a \"${REDIS_PASSWORD}\" ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     logging:
       driver: "json-file"
       options:

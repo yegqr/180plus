@@ -83,8 +83,8 @@ Pure or near-pure business logic, no aiogram-dialog dependencies:
 | `simulation_service.py` | `finish_simulation()` — scores + persists a completed simulation |
 | `gemini.py` | GeminiService — async AI explanations via Google Gemini API |
 | `bulk_upload.py` | ZIP+CSV question import with concurrent Gemini calls |
-| `broadcaster.py` | Mass-send Telegram messages with rate limiting |
-| `daily.py` | Daily challenge lottery and broadcast logic |
+| `broadcaster.py` | Mass-send Telegram messages — chunk-based parallel sends (25 msg/chunk, 1 s between chunks ≈ 25 msg/s) |
+| `daily.py` | Daily challenge lottery and broadcast logic — uses same chunk-based pattern |
 | `scheduler.py` | APScheduler setup; jobs own their own sessions via `_session_pool` |
 | `topic_manager.py` | Forum topic creation/management |
 | `album_manager.py` | Deduplication buffer for Telegram media groups |
@@ -196,7 +196,7 @@ Tests use in-memory SQLite via aiosqlite. `tests/conftest.py` patches the follow
 | `tgbot/services/simulation_service.py` | `finish_simulation()` — score + persist results |
 | `tgbot/services/gemini.py` | GeminiService — AI answer explanations |
 | `tgbot/services/bulk_upload.py` | ZIP+CSV question import |
-| `tgbot/misc/constants.py` | SUBJECT_LABELS, DAILY_CHALLENGE_SUBJECTS, all shared constants |
+| `tgbot/misc/constants.py` | SUBJECT_LABELS, DAILY_CHALLENGE_SUBJECTS, BROADCAST_CHUNK_SIZE/DELAY, all shared constants |
 | `tgbot/misc/nmt_scoring.py` | NMT score conversion tables |
 | `infrastructure/database/repo/requests.py` | RequestsRepo facade |
 | `infrastructure/database/setup.py` | `create_engine()`, `create_session_pool()` |
@@ -231,6 +231,40 @@ Daily challenge subjects (subset): `math`, `mova`, `hist`
 - **State classes:** `{DialogName}SG` with states named after what the window shows — `SimulationSG.question`, `AdminSG.menu`
 
 ---
+
+## Broadcast Rate Limiting
+
+`broadcaster.py` and `daily.py` use **chunk-based parallel sends** instead of sequential:
+
+- `BROADCAST_CHUNK_SIZE = 25` — concurrent sends per chunk
+- `BROADCAST_CHUNK_DELAY = 1.0 s` — sleep between chunks
+- Effective rate: ~25 msg/s (safely under Telegram's 30 msg/s global cap)
+- `asyncio.gather(..., return_exceptions=True)` — one failed send does not block the chunk
+
+Do **not** revert to a sequential loop — it blocks the event loop for the entire broadcast duration.
+
+## Logging
+
+Structured JSON logging is opt-in via env var:
+
+```bash
+LOG_FORMAT=json  # set in .env on the server
+```
+
+When set, all log output is emitted as JSON (via `python-json-logger`) for aggregators such as Loki, Datadog, or ELK. Without the var, `betterlogging` colourised output is used for local dev.
+
+## Database — statement timeout
+
+PostgreSQL is configured with `statement_timeout = 10 000 ms` (10 s) at the server level (`docker-compose.yml`). Any query running longer than 10 s is automatically killed. This protects handlers from hanging indefinitely on slow or missing indexes.
+
+## Graceful Shutdown (webhook mode)
+
+In webhook mode `_run_webhook()` installs `signal.SIGTERM` / `signal.SIGINT` handlers on the event loop. On shutdown:
+
+1. `runner.cleanup()` — drains in-flight aiohttp requests
+2. `bot.delete_webhook()` — tells Telegram to stop delivering updates
+
+`docker stop` sends SIGTERM, so containers shut down cleanly without corrupting in-flight handler state.
 
 ## Deploy
 
