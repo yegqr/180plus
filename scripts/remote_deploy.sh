@@ -85,6 +85,7 @@ rsync -avz --exclude '.venv' \
       --exclude '.gemini' \
       --exclude 'pgdata' \
       --exclude 'cache_data' \
+      --exclude '.env' \
       -e "ssh $SSH_OPTIONS" . "$SERVER_USER@$SERVER_IP:$TARGET_DIR"
 
 if [ $? -ne 0 ]; then
