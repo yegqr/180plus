@@ -265,3 +265,221 @@ class TestJoinRequestsRepo:
         await repo.session.commit()
         requests = await repo.join_requests.get_all_requests()
         assert requests == []
+
+
+# ===========================================================================
+# MaterialRepo
+# ===========================================================================
+
+class TestMaterialRepo:
+    async def test_get_by_subject_returns_none_when_missing(self, repo: RequestsRepo) -> None:
+        result = await repo.materials.get_by_subject("math")
+        assert result is None
+
+    async def test_update_creates_new_row(self, repo: RequestsRepo) -> None:
+        await repo.materials.update_materials("math", ["file_id_1"])
+        await repo.session.commit()
+        material = await repo.materials.get_by_subject("math")
+        assert material is not None
+        assert "file_id_1" in material.images
+
+    async def test_update_upserts_existing_row(self, repo: RequestsRepo) -> None:
+        await repo.materials.update_materials("math", ["file_id_1"])
+        await repo.session.commit()
+        await repo.materials.update_materials("math", ["file_id_1", "file_id_2"])
+        await repo.session.commit()
+        material = await repo.materials.get_by_subject("math")
+        assert material.images == ["file_id_1", "file_id_2"]
+
+    async def test_update_multiple_subjects_independently(self, repo: RequestsRepo) -> None:
+        await repo.materials.update_materials("math", ["a"])
+        await repo.materials.update_materials("ukr", ["b"])
+        await repo.session.commit()
+        assert (await repo.materials.get_by_subject("math")).images == ["a"]
+        assert (await repo.materials.get_by_subject("ukr")).images == ["b"]
+
+    async def test_clear_empties_images(self, repo: RequestsRepo) -> None:
+        await repo.materials.update_materials("math", ["file_id_1", "file_id_2"])
+        await repo.session.commit()
+        await repo.materials.clear_materials("math")
+        await repo.session.commit()
+        material = await repo.materials.get_by_subject("math")
+        assert material.images == []
+
+    async def test_clear_nonexistent_subject_is_noop(self, repo: RequestsRepo) -> None:
+        await repo.materials.clear_materials("nonexistent")  # should not raise
+
+
+# ===========================================================================
+# ResultRepo
+# ===========================================================================
+
+class TestResultRepo:
+    async def _setup_user(self, repo: RequestsRepo) -> None:
+        await repo.users.get_or_create_user(user_id=1, full_name="Test", language="uk")
+        await repo.session.commit()
+
+    async def test_save_and_get_last_session_result(self, repo: RequestsRepo) -> None:
+        await self._setup_user(repo)
+        await repo.results.save_result(1, "math", 2024, "s1", 30, 160, 3600)
+        await repo.session.commit()
+        result = await repo.results.get_last_session_result(1, "math", "s1")
+        assert result is not None
+        assert result.raw_score == 30
+        assert result.nmt_score == 160
+
+    async def test_get_last_session_result_returns_none_when_missing(self, repo: RequestsRepo) -> None:
+        await self._setup_user(repo)
+        result = await repo.results.get_last_session_result(1, "math", "s1")
+        assert result is None
+
+    async def test_get_last_session_result_excludes_zero_score(self, repo: RequestsRepo) -> None:
+        await self._setup_user(repo)
+        await repo.results.save_result(1, "math", 2024, "s1", 0, 0, 3600)
+        await repo.session.commit()
+        result = await repo.results.get_last_session_result(1, "math", "s1")
+        assert result is None  # raw_score > 0 filter
+
+    async def test_get_completed_sessions_requires_duration_900(self, repo: RequestsRepo) -> None:
+        await self._setup_user(repo)
+        await repo.results.save_result(1, "math", 2024, "short", 10, 100, 899)
+        await repo.session.commit()
+        await repo.results.save_result(1, "math", 2024, "valid", 10, 100, 900)
+        await repo.session.commit()
+        sessions = await repo.results.get_completed_sessions(1, "math", 2024)
+        assert "short" not in sessions
+        assert "valid" in sessions
+
+    async def test_get_completed_sessions_empty_for_unknown_user(self, repo: RequestsRepo) -> None:
+        sessions = await repo.results.get_completed_sessions(999, "math", 2024)
+        assert sessions == set()
+
+    async def test_get_completed_sessions_subject_isolation(self, repo: RequestsRepo) -> None:
+        await self._setup_user(repo)
+        await repo.results.save_result(1, "math", 2024, "s1", 10, 100, 1800)
+        await repo.session.commit()
+        await repo.results.save_result(1, "ukr", 2024, "s1", 10, 100, 1800)
+        await repo.session.commit()
+        math_sessions = await repo.results.get_completed_sessions(1, "math", 2024)
+        ukr_sessions = await repo.results.get_completed_sessions(1, "ukr", 2024)
+        assert "s1" in math_sessions
+        assert "s1" in ukr_sessions
+
+    async def test_get_all_results_for_export_filters(self, repo: RequestsRepo) -> None:
+        await self._setup_user(repo)
+        await repo.results.save_result(1, "math", 2024, "zero_score", 0, 0, 3600)
+        await repo.session.commit()
+        await repo.results.save_result(1, "math", 2024, "too_short", 10, 150, 200)
+        await repo.session.commit()
+        await repo.results.save_result(1, "math", 2024, "valid", 20, 160, 3600)
+        await repo.session.commit()
+        export = await repo.results.get_all_results_for_export()
+        sessions = [r.session for r in export]
+        assert "zero_score" not in sessions
+        assert "too_short" not in sessions
+        assert "valid" in sessions
+
+    async def test_save_random_result(self, repo: RequestsRepo) -> None:
+        await self._setup_user(repo)
+        await repo.results.save_random_result(1, "math", question_id=42, points=1)
+        await repo.session.commit()  # should not raise
+
+
+# ===========================================================================
+# StatsRepo
+# ===========================================================================
+
+class TestStatsRepo:
+    async def _setup_user(self, repo: RequestsRepo, user_id: int = 1) -> None:
+        await repo.users.get_or_create_user(user_id=user_id, full_name="Test", language="uk")
+        await repo.session.commit()
+
+    async def test_add_join_stat(self, repo: RequestsRepo) -> None:
+        await repo.stats.add_join_stat(user_id=1, source="telegram")
+        await repo.session.commit()  # should not raise
+
+    async def test_get_weekly_stats_current_week(self, repo: RequestsRepo) -> None:
+        await repo.stats.add_join_stat(user_id=1, source="telegram")
+        await repo.stats.add_join_stat(user_id=2, source="telegram")
+        await repo.stats.add_join_stat(user_id=3, source="vk")
+        await repo.session.commit()
+        stats = await repo.stats.get_weekly_stats(week_offset=0)
+        by_source = {s["source"]: s["count"] for s in stats}
+        assert by_source.get("telegram") == 2
+        assert by_source.get("vk") == 1
+
+    async def test_get_weekly_stats_last_week_empty(self, repo: RequestsRepo) -> None:
+        await repo.stats.add_join_stat(user_id=1, source="telegram")
+        await repo.session.commit()
+        stats = await repo.stats.get_weekly_stats(week_offset=1)
+        assert stats == []
+
+    async def test_get_content_stats_empty(self, repo: RequestsRepo) -> None:
+        stats = await repo.stats.get_content_stats()
+        assert stats == []
+
+    async def test_get_daily_activity_stats_empty(self, repo: RequestsRepo) -> None:
+        stats = await repo.stats.get_daily_activity_stats()
+        assert stats["total_sims"] == 0
+        assert stats["total_rand"] == 0
+        assert stats["simulations"] == {}
+        assert stats["random"] == {}
+
+    async def test_get_daily_activity_stats_with_data(self, repo: RequestsRepo) -> None:
+        await self._setup_user(repo)
+        await repo.results.save_result(1, "math", 2024, "s1", 10, 150, 3600)
+        await repo.results.save_random_result(1, "ukr", question_id=5, points=1)
+        await repo.session.commit()
+        stats = await repo.stats.get_daily_activity_stats()
+        assert stats["simulations"].get("math") == 1
+        assert stats["random"].get("ukr") == 1
+        assert stats["total_sims"] == 1
+        assert stats["total_rand"] == 1
+
+
+# ===========================================================================
+# UserRepo — additional coverage
+# ===========================================================================
+
+class TestUserRepoExtra:
+    async def _create_user(self, repo: RequestsRepo, user_id: int, **kwargs) -> None:
+        await repo.users.get_or_create_user(
+            user_id=user_id, full_name=f"User{user_id}", language="uk", **kwargs
+        )
+        await repo.session.commit()
+
+    async def test_get_active_stats_empty(self, repo: RequestsRepo) -> None:
+        stats = await repo.users.get_active_stats()
+        assert stats == {"total": 0, "today": 0, "week": 0}
+
+    async def test_get_active_stats_counts_users(self, repo: RequestsRepo) -> None:
+        await self._create_user(repo, 1)
+        await self._create_user(repo, 2)
+        stats = await repo.users.get_active_stats()
+        assert stats["total"] == 2
+        assert stats["today"] == 2
+        assert stats["week"] == 2
+
+    async def test_get_users_for_broadcast_all(self, repo: RequestsRepo) -> None:
+        await self._create_user(repo, 1)
+        await self._create_user(repo, 2)
+        user_ids = await repo.users.get_users_for_broadcast("all")
+        assert 1 in user_ids
+        assert 2 in user_ids
+
+    async def test_get_users_for_broadcast_active_today(self, repo: RequestsRepo) -> None:
+        await self._create_user(repo, 1)
+        user_ids = await repo.users.get_users_for_broadcast("active_today")
+        assert 1 in user_ids
+
+    async def test_get_users_for_broadcast_daily_challenge(self, repo: RequestsRepo) -> None:
+        await self._create_user(repo, 1)
+        user_ids = await repo.users.get_users_for_broadcast("daily_challenge")
+        assert 1 in user_ids
+
+    async def test_update_subject(self, repo: RequestsRepo) -> None:
+        await self._create_user(repo, 1)
+        await repo.users.update_subject(1, "ukr")
+        await repo.session.commit()
+        user = await repo.users.get_user_by_id(1)
+        assert user.selected_subject == "ukr"

@@ -20,7 +20,7 @@ class StatsRepo(BaseRepo):
         Returns UTM stats for a specific week.
         week_offset=0 → current week, week_offset=1 → last week.
         """
-        today = datetime.datetime.utcnow()
+        today = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         start_of_week = today - datetime.timedelta(days=today.weekday())
         start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
         target_start = start_of_week - datetime.timedelta(weeks=week_offset)
@@ -48,7 +48,7 @@ class StatsRepo(BaseRepo):
         """Returns today's simulation and random-question counts per subject."""
         from infrastructure.database.models import ExamResult, RandomResult
 
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         today_start = datetime.datetime(now.year, now.month, now.day)
 
         sim_result = await self.session.execute(

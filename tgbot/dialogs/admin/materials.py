@@ -29,7 +29,7 @@ async def get_material_upload_data(dialog_manager: DialogManager, **kwargs) -> d
     subject = dialog_manager.dialog_data.get("material_subject")
 
     material = await repo.materials.get_by_subject(subject)
-    images = material.images if material else []
+    images = list(material.images or []) if material else []
 
     return {
         "subject":       subject,
@@ -58,7 +58,7 @@ async def on_material_photo_upload(message: Message, widget: Any, dm: DialogMana
 
     file_id = message.photo[-1].file_id
     material = await repo.materials.get_by_subject(subject)
-    images = material.images if material else []
+    images = list(material.images or []) if material else []
 
     if file_id not in images:
         images.append(file_id)

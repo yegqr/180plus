@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
 
 from sqlalchemy import and_, func, select, update
@@ -63,7 +63,7 @@ class UserRepo(BaseRepo):
         return result.scalar_one_or_none()
 
     async def get_active_stats(self) -> dict[str, int]:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         today_start = datetime(now.year, now.month, now.day)
         week_start = today_start - timedelta(days=7)
 
@@ -98,7 +98,7 @@ class UserRepo(BaseRepo):
         return result.scalars().all()
 
     async def get_users_for_broadcast(self, filter_type: str) -> list[int]:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         today_start = datetime(now.year, now.month, now.day)
 
         stmt = select(User.user_id)
