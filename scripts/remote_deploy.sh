@@ -73,10 +73,10 @@ echo -e "${CYAN}${BOLD}───────────────────
 # STEP 2: Confirm
 # ============================================================
 echo ""
-echo -e "${YELLOW}${BOLD}Продовжити деплой? Введіть 'ok' для підтвердження:${NC} "
+echo -e "${YELLOW}${BOLD}Продовжити деплой? Натисніть 'enter' для підтвердження:${NC} "
 read -r CONFIRM
 
-if [ "$CONFIRM" != "ok" ]; then
+if [ "$CONFIRM" != "" ]; then
     echo -e "${YELLOW}⚠️  Деплой скасовано.${NC}"
     exit 0
 fi
