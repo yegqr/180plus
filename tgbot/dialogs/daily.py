@@ -38,7 +38,7 @@ async def check_answer(message: Message, widget: TextInput, dialog_manager: Dial
     await dialog_manager.switch_to(DailySG.result)
 
 async def to_main_menu(callback: CallbackQuery, button: Button, dialog_manager: DialogManager) -> None:
-    await dialog_manager.start(MainSG.menu)
+    await dialog_manager.done()
 
 daily_dialog = Dialog(
     Window(

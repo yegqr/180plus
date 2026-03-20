@@ -559,7 +559,7 @@ async def on_quit_review(c: Any, b: Button, dm: DialogManager) -> None:
         chat_id = dm.middleware_data.get("event_chat").id
         await AlbumManager.cleanup_album(bot, chat_id, old_album_ids)
         dm.dialog_data["album_message_ids"] = []
-    await dm.done()
+    await dm.switch_to(SimulationSG.summary)
 
 
 async def on_show_explanation(c: Any, b: Button, dm: DialogManager) -> None:

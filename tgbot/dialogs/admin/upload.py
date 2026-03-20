@@ -277,7 +277,8 @@ def get_windows() -> list:
                 "<code>physics | 2024 | main | 3 | short | - | 4,5</code>"
             ),
             MessageInput(on_upload_photo, content_types=[ContentType.PHOTO]),
-            Cancel(Const("🔙 Назад (до предметів)")),
+            Button(Const("🔙 Назад (до предметів)"), id="back_subjects",
+                   on_click=lambda c, b, d: d.switch_to(AdminSG.subjects)),
             state=AdminSG.upload_new,
         ),
         Window(

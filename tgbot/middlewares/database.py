@@ -65,6 +65,9 @@ class DatabaseMiddleware(BaseMiddleware):
                 # Expose session_pool so downstream code (e.g. admin broadcast handlers)
                 # can open their own sessions without the bot.session_pool hack.
                 data["session_pool"] = self.session_pool
+                # Expose redis so handlers can invalidate the user cache on writes
+                # (e.g. subject change, settings update).
+                data["user_cache_redis"] = self._redis
 
                 try:
                     result = await handler(event, data)

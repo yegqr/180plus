@@ -63,9 +63,18 @@ async def on_random(callback: Any, button: Button, dialog_manager: DialogManager
 async def on_subject_selected(c: CallbackQuery, widget: Any, manager: DialogManager, item_id: str) -> None:
     repo: RequestsRepo = manager.middleware_data.get("repo")
     user: User = manager.middleware_data.get("user")
-    
+
     await repo.users.update_subject(user.user_id, item_id)
     user.selected_subject = item_id
+
+    # Invalidate Redis user cache so the next request picks up the new subject
+    # instead of serving the stale cached value for up to 5 minutes.
+    redis = manager.middleware_data.get("user_cache_redis")
+    if redis:
+        try:
+            await redis.delete(f"ucache:{user.user_id}")
+        except Exception:
+            pass
 
 
 main_menu_dialog = Dialog(

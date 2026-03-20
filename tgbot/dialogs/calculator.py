@@ -163,12 +163,27 @@ async def get_calculator_data(dialog_manager: DialogManager, **kwargs) -> dict:
 async def save_calc_data(dialog_manager: DialogManager, update_dict: dict) -> None:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     user: User = dialog_manager.middleware_data.get("user")
-    
-    if "calc" not in user.settings:
-        user.settings["calc"] = {}
-    
-    user.settings["calc"].update(update_dict)
-    await repo.users.update_user_settings(user.user_id, user.settings)
+    redis = dialog_manager.middleware_data.get("user_cache_redis")
+
+    # Fetch fresh settings from DB to avoid overwriting with stale Redis-cached data
+    fresh_user = await repo.users.get_user_by_id(user.user_id)
+    settings = (fresh_user.settings if fresh_user else None) or {}
+
+    if "calc" not in settings:
+        settings["calc"] = {}
+
+    settings["calc"].update(update_dict)
+    await repo.users.update_user_settings(user.user_id, settings)
+
+    # Keep in-memory user consistent for the rest of this request
+    user.settings = settings
+
+    # Invalidate Redis cache so the next request loads fresh settings from DB
+    if redis is not None:
+        try:
+            await redis.delete(f"ucache:{user.user_id}")
+        except Exception:
+            pass
 
 async def on_spec_selected(callback: CallbackQuery, widget: Any, dialog_manager: DialogManager, item_id: str) -> None:
     await save_calc_data(dialog_manager, {"spec_code": item_id})
