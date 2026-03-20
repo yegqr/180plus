@@ -10,7 +10,7 @@ from typing import Any
 
 from aiogram import F
 from aiogram_dialog import DialogManager, Window
-from aiogram_dialog.widgets.kbd import Back, Button, Column
+from aiogram_dialog.widgets.kbd import Button, Column
 from aiogram_dialog.widgets.text import Const, Format
 
 from infrastructure.database.repo.requests import RequestsRepo
@@ -94,7 +94,8 @@ def get_windows() -> list:
                        on_click=on_toggle_daily, when=F["is_enabled"]),
                 Button(Const("🚀 Надіслати зараз (Force)"), id="daily_force",
                        on_click=on_force_daily),
-                Back(Const("⬅️ Назад")),
+                Button(Const("⬅️ Назад"), id="back_menu_daily",
+                       on_click=lambda c, b, d: d.switch_to(AdminSG.menu)),
             ),
             state=AdminSG.daily_settings,
             getter=get_daily_status,

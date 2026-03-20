@@ -14,7 +14,7 @@ from typing import Any
 from aiogram.types import BufferedInputFile, ContentType
 from aiogram_dialog import DialogManager, Window
 from aiogram_dialog.widgets.input import MessageInput
-from aiogram_dialog.widgets.kbd import Back, Button, Column, Row, Select
+from aiogram_dialog.widgets.kbd import Button, Column, Row, Select
 from aiogram_dialog.widgets.text import Const, Format
 
 from infrastructure.database.repo.requests import RequestsRepo
@@ -400,7 +400,8 @@ def get_windows() -> list:
                 Button(Const("🗂 Аудит"), id="btn_audit",
                        on_click=lambda c, b, d: d.switch_to(AdminSG.audit_log)),
             ),
-            Back(Const("🔙 Назад")),
+            Button(Const("🔙 Назад"), id="back_menu_stats",
+                   on_click=lambda c, b, d: d.switch_to(AdminSG.menu)),
             state=AdminSG.stats,
             getter=get_admin_dashboard,
         ),
@@ -429,7 +430,8 @@ def get_windows() -> list:
                 "🗂 <b>Аудит лог адмінів</b> (останні 20)\n\n"
                 "{audit_text}"
             ),
-            Back(Const("🔙 Назад")),
+            Button(Const("🔙 Назад"), id="back_stats_audit",
+                   on_click=lambda c, b, d: d.switch_to(AdminSG.stats)),
             state=AdminSG.audit_log,
             getter=get_audit_log,
         ),
@@ -441,7 +443,8 @@ def get_windows() -> list:
                 "<i>(по кількості неправильних відповідей)</i>\n\n"
                 "{hardest_text}"
             ),
-            Back(Const("🔙 Назад")),
+            Button(Const("🔙 Назад"), id="back_stats_hardest",
+                   on_click=lambda c, b, d: d.switch_to(AdminSG.stats)),
             state=AdminSG.hardest_questions,
             getter=get_hardest_questions_data,
         ),
