@@ -26,3 +26,5 @@ class AdminSG(StatesGroup):
     delete_session_confirm = State()
     edit_session_year = State()
     edit_session_name = State()
+    audit_log = State()
+    hardest_questions = State()

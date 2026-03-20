@@ -73,7 +73,17 @@ async def on_daily_answer(call: CallbackQuery, bot: Bot, repo: RequestsRepo, dia
         
     if is_correct:
         await call.answer("✅ Правильно! Молодець! 🔥", show_alert=True)
-        # Optional: Edit message to show success state?
     else:
         await call.answer(f"❌ Неправильно. Правильна відповідь: {correct_val}", show_alert=True)
+
+    # Record participation (fire-and-forget — never breaks the handler)
+    try:
+        await repo.daily_participation.record_answer(
+            user_id=call.from_user.id,
+            question_id=qid,
+            answer=str(user_ans),
+            is_correct=is_correct,
+        )
+    except Exception as e:
+        logger.warning(f"Daily: failed to record participation for user {call.from_user.id}: {e}")
 

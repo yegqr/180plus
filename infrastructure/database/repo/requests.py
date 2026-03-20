@@ -57,6 +57,16 @@ class RequestsRepo:
         from infrastructure.database.repo.materials import MaterialRepo
         return MaterialRepo(self.session)
 
+    @property
+    def audit(self) -> "AuditRepo":
+        from infrastructure.database.repo.audit import AuditRepo
+        return AuditRepo(self.session)
+
+    @property
+    def daily_participation(self) -> "DailyParticipationRepo":
+        from infrastructure.database.repo.daily_participation import DailyParticipationRepo
+        return DailyParticipationRepo(self.session)
+
 
 if __name__ == "__main__":
     from infrastructure.database.setup import create_session_pool

@@ -8,3 +8,5 @@ from .join_requests import PendingJoinRequest
 from .stats import JoinStat
 from .logs import UserActionLog
 from .materials import SubjectMaterial
+from .audit import AdminAuditLog
+from .daily_participation import DailyParticipation

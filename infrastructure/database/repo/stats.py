@@ -71,3 +71,38 @@ class StatsRepo(BaseRepo):
             "total_sims":  sum(sim_stats.values()),
             "total_rand":  sum(rand_stats.values()),
         }
+
+    async def get_abandoned_stats(self) -> dict[str, int]:
+        """
+        Approximates abandoned simulations.
+        Started  = distinct (user_id, session_id) pairs in UserActionLog with mode=simulation today.
+        Completed = ExamResult count today.
+        Abandoned = max(0, started - completed).
+        """
+        from infrastructure.database.models import UserActionLog, ExamResult
+
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        today_start = datetime.datetime(now.year, now.month, now.day)
+
+        started_rows = await self.session.execute(
+            select(UserActionLog.user_id, UserActionLog.session_id)
+            .where(
+                UserActionLog.mode == "simulation",
+                UserActionLog.session_id.is_not(None),
+                UserActionLog.created_at >= today_start,
+            )
+            .distinct()
+        )
+        started = len(started_rows.all())
+
+        completed = (
+            await self.session.execute(
+                select(func.count(ExamResult.id)).where(ExamResult.created_at >= today_start)
+            )
+        ).scalar() or 0
+
+        return {
+            "started": started,
+            "completed": int(completed),
+            "abandoned": max(0, started - int(completed)),
+        }

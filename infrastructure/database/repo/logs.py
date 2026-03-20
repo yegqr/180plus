@@ -88,3 +88,44 @@ class LogsRepo(BaseRepo):
         stmt = select(UserActionLog).order_by(desc(UserActionLog.created_at))
         result = await self.session.execute(stmt)
         return result.scalars().all()
+
+    async def get_hardest_questions(self, limit: int = 10) -> list[dict]:
+        """
+        Returns the top-N questions by number of wrong answers across all users.
+        Compatible with both PostgreSQL and SQLite.
+        """
+        stmt = (
+            select(
+                UserActionLog.question_id,
+                func.count(UserActionLog.id).label("wrong_count"),
+            )
+            .where(UserActionLog.is_correct == False)  # noqa: E712
+            .group_by(UserActionLog.question_id)
+            .order_by(desc("wrong_count"))
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        rows = result.all()
+        if not rows:
+            return []
+
+        from infrastructure.database.models import Question
+        q_ids = [r.question_id for r in rows]
+        q_map: dict[int, Question] = {}
+        if q_ids:
+            q_result = await self.session.execute(
+                select(Question).where(Question.id.in_(q_ids))
+            )
+            for q in q_result.scalars().all():
+                q_map[q.id] = q
+
+        return [
+            {
+                "question_id": r.question_id,
+                "wrong_count": r.wrong_count,
+                "subject": getattr(q_map.get(r.question_id), "subject", "?"),
+                "q_number": getattr(q_map.get(r.question_id), "q_number", "?"),
+                "q_type": getattr(q_map.get(r.question_id), "q_type", "?"),
+            }
+            for r in rows
+        ]

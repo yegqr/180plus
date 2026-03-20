@@ -1,5 +1,5 @@
 """
-Admin dashboard: bot stats, admin user management, CSV exports.
+Admin dashboard: bot stats, admin user management, CSV exports, audit log, hardest questions.
 """
 
 from __future__ import annotations
@@ -7,7 +7,8 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import datetime
+import zipfile
+from datetime import date, datetime
 from typing import Any
 
 from aiogram.types import BufferedInputFile, ContentType
@@ -23,25 +24,22 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Getters
+# Formatters
 # ---------------------------------------------------------------------------
 
 def _fmt_week(data: list) -> str:
-    """Formats UTM source rows for weekly dashboard display."""
     if not data:
         return "— порожньо —"
     return "\n".join(f"• {row['source']}: {row['count']}" for row in data)
 
 
 def _fmt_content(data: list) -> str:
-    """Formats per-subject question-count rows for dashboard display."""
     if not data:
         return "— порожньо —"
     return "\n".join(f"• {row['subject']}: {row['count']}" for row in data)
 
 
 def _fmt_daily(activity: dict) -> str:
-    """Formats per-subject daily activity breakdown for dashboard display."""
     subjects = set(list(activity["simulations"].keys()) + list(activity["random"].keys()))
     if not subjects:
         return "— сьогодні активності не було —"
@@ -53,6 +51,10 @@ def _fmt_daily(activity: dict) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Getters
+# ---------------------------------------------------------------------------
+
 async def get_admin_dashboard(dialog_manager: DialogManager, **kwargs) -> dict:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
 
@@ -61,6 +63,8 @@ async def get_admin_dashboard(dialog_manager: DialogManager, **kwargs) -> dict:
     last_week = await repo.stats.get_weekly_stats(week_offset=1)
     content_stats = await repo.stats.get_content_stats()
     daily_activity = await repo.stats.get_daily_activity_stats()
+    abandoned = await repo.stats.get_abandoned_stats()
+    daily_part = await repo.daily_participation.get_stats_for_date(date.today())
 
     return {
         "total":           stats["total"],
@@ -72,6 +76,13 @@ async def get_admin_dashboard(dialog_manager: DialogManager, **kwargs) -> dict:
         "daily_sims":      daily_activity["total_sims"],
         "daily_rand":      daily_activity["total_rand"],
         "daily_breakdown": _fmt_daily(daily_activity),
+        "sim_started":     abandoned["started"],
+        "sim_completed":   abandoned["completed"],
+        "sim_abandoned":   abandoned["abandoned"],
+        "daily_sent":      daily_part["sent"],
+        "daily_answered":  daily_part["answered"],
+        "daily_correct":   daily_part["correct"],
+        "daily_rate":      daily_part["rate"],
     }
 
 
@@ -83,12 +94,45 @@ async def get_admins_list(dialog_manager: DialogManager, **kwargs) -> dict:
     }
 
 
+async def get_audit_log(dialog_manager: DialogManager, **kwargs) -> dict:
+    repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
+    logs = await repo.audit.get_recent_logs(limit=20)
+    if not logs:
+        text = "— Аудит порожній —"
+    else:
+        lines = []
+        for entry in logs:
+            ts = entry.created_at.strftime("%m-%d %H:%M") if entry.created_at else "?"
+            target = f" → {entry.target_id}" if entry.target_id else ""
+            detail = f" ({entry.details[:40]})" if entry.details else ""
+            lines.append(f"• [{ts}] <b>{entry.action}</b>{target}{detail}")
+        text = "\n".join(lines)
+    return {"audit_text": text}
+
+
+async def get_hardest_questions_data(dialog_manager: DialogManager, **kwargs) -> dict:
+    repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
+    questions = await repo.logs.get_hardest_questions(limit=10)
+    if not questions:
+        text = "— Ще немає даних —"
+    else:
+        lines = []
+        for i, q in enumerate(questions, 1):
+            lines.append(
+                f"{i}. Q#{q['question_id']} [{q['subject'].upper()} | {q['q_type']}]"
+                f" — ❌ {q['wrong_count']} помилок"
+            )
+        text = "\n".join(lines)
+    return {"hardest_text": text}
+
+
 # ---------------------------------------------------------------------------
-# Handlers
+# Handlers — Admin management
 # ---------------------------------------------------------------------------
 
 async def on_add_admin(message: Any, widget: Any, dm: DialogManager) -> None:
     repo: RequestsRepo = dm.middleware_data.get("repo")
+    actor: Any = dm.middleware_data.get("user")
     try:
         user_id = int(message.text.strip())
         user = await repo.users.get_user_by_id(user_id)
@@ -98,6 +142,12 @@ async def on_add_admin(message: Any, widget: Any, dm: DialogManager) -> None:
             )
             return
         await repo.users.promote_admin(user_id)
+        await repo.audit.log_action(
+            admin_id=actor.user_id,
+            action="promote_admin",
+            target_id=str(user_id),
+            details=user.full_name,
+        )
         await message.reply(f"✅ Користувач {user.full_name} тепер адмін!")
     except ValueError:
         await message.reply("❌ Надішліть коректний ID (число).")
@@ -105,60 +155,173 @@ async def on_add_admin(message: Any, widget: Any, dm: DialogManager) -> None:
 
 async def on_demote_admin(c: Any, w: Any, dm: DialogManager, item_id: str) -> None:
     repo: RequestsRepo = dm.middleware_data.get("repo")
-    curr_user = dm.middleware_data.get("user")
-    if int(item_id) == curr_user.user_id:
+    actor: Any = dm.middleware_data.get("user")
+    if int(item_id) == actor.user_id:
         await c.answer("Ви не можете прибрати самого себе!", show_alert=True)
         return
     await repo.users.demote_admin(int(item_id))
+    await repo.audit.log_action(
+        admin_id=actor.user_id,
+        action="demote_admin",
+        target_id=item_id,
+    )
     await c.message.reply(f"✅ Адміна {item_id} видалено.")
+
+
+# ---------------------------------------------------------------------------
+# Handlers — Exports
+# ---------------------------------------------------------------------------
+
+def _make_csv(rows: list[list], headers: list[str]) -> bytes:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    return output.getvalue().encode("utf-8")
 
 
 async def on_export_logs(c: Any, b: Any, dm: DialogManager) -> None:
     repo: RequestsRepo = dm.middleware_data.get("repo")
     logs = await repo.logs.get_all_logs()
-
     if not logs:
         await c.answer("Logs are empty!", show_alert=True)
         return
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["ID", "User ID", "Question ID", "Answer", "Is Correct", "Mode", "Session", "Time"])
-    for log in logs:
-        writer.writerow([
-            log.id, log.user_id, log.question_id, log.answer,
-            log.is_correct, log.mode, log.session_id,
-            log.created_at.strftime("%Y-%m-%d %H:%M:%S") if log.created_at else "",
-        ])
-
-    output.seek(0)
+    data = _make_csv(
+        [
+            [
+                log.id, log.user_id, log.question_id, log.answer,
+                log.is_correct, log.mode, log.session_id,
+                log.created_at.strftime("%Y-%m-%d %H:%M:%S") if log.created_at else "",
+            ]
+            for log in logs
+        ],
+        ["ID", "User ID", "Question ID", "Answer", "Is Correct", "Mode", "Session", "Time"],
+    )
     filename = f"user_logs_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-    doc = BufferedInputFile(output.getvalue().encode("utf-8"), filename=filename)
-    await c.message.answer_document(doc, caption="📂 User Action Logs")
+    await c.message.answer_document(
+        BufferedInputFile(data, filename=filename),
+        caption="📂 User Action Logs",
+    )
 
 
 async def on_export_stats(c: Any, b: Any, dm: DialogManager) -> None:
     repo: RequestsRepo = dm.middleware_data.get("repo")
     results = await repo.results.get_all_results_for_export()
-
     if not results:
         await c.answer("❌ Немає даних для експорту.", show_alert=True)
         return
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["User ID", "Subject", "Date", "Year", "Session", "Raw Score", "NMT Score", "Duration (sec)"])
-    for r in results:
-        writer.writerow([
-            r.user_id, r.subject,
-            r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            r.year, r.session, r.raw_score, r.nmt_score, r.duration,
-        ])
-
-    output.seek(0)
+    data = _make_csv(
+        [
+            [
+                r.user_id, r.subject,
+                r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                r.year, r.session, r.raw_score, r.nmt_score, r.duration,
+            ]
+            for r in results
+        ],
+        ["User ID", "Subject", "Date", "Year", "Session", "Raw Score", "NMT Score", "Duration (sec)"],
+    )
     filename = f"nmt_stats_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-    document = BufferedInputFile(output.getvalue().encode("utf-8"), filename=filename)
-    await c.message.answer_document(document, caption="📊 Ваша статистика готова!")
+    await c.message.answer_document(
+        BufferedInputFile(data, filename=filename),
+        caption="📊 Exam Results",
+    )
+
+
+async def on_export_all_zip(c: Any, b: Any, dm: DialogManager) -> None:
+    """One-click: ZIP archive with all available log tables as separate CSVs."""
+    repo: RequestsRepo = dm.middleware_data.get("repo")
+    actor: Any = dm.middleware_data.get("user")
+
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+
+        # 1. user_action_logs.csv
+        logs = await repo.logs.get_all_logs()
+        zf.writestr(
+            "user_action_logs.csv",
+            _make_csv(
+                [
+                    [
+                        l.id, l.user_id, l.question_id, l.answer,
+                        l.is_correct, l.mode, l.session_id,
+                        l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else "",
+                    ]
+                    for l in logs
+                ],
+                ["ID", "User ID", "Question ID", "Answer", "Is Correct", "Mode", "Session", "Time"],
+            ).decode("utf-8"),
+        )
+
+        # 2. exam_results.csv
+        results = await repo.results.get_all_results_for_export()
+        zf.writestr(
+            "exam_results.csv",
+            _make_csv(
+                [
+                    [
+                        r.user_id, r.subject,
+                        r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                        r.year, r.session, r.raw_score, r.nmt_score, r.duration,
+                    ]
+                    for r in results
+                ],
+                ["User ID", "Subject", "Date", "Year", "Session", "Raw Score", "NMT Score", "Duration (sec)"],
+            ).decode("utf-8"),
+        )
+
+        # 3. admin_audit_log.csv
+        audit = await repo.audit.get_all_for_export()
+        zf.writestr(
+            "admin_audit_log.csv",
+            _make_csv(
+                [
+                    [
+                        a.id, a.admin_id, a.action, a.target_id or "", a.details or "",
+                        a.created_at.strftime("%Y-%m-%d %H:%M:%S") if a.created_at else "",
+                    ]
+                    for a in audit
+                ],
+                ["ID", "Admin ID", "Action", "Target ID", "Details", "Time"],
+            ).decode("utf-8"),
+        )
+
+        # 4. daily_participation.csv
+        daily = await repo.daily_participation.get_all_for_export()
+        zf.writestr(
+            "daily_participation.csv",
+            _make_csv(
+                [
+                    [
+                        d.id, d.user_id, d.question_id, d.subject, str(d.date),
+                        d.sent_at.strftime("%Y-%m-%d %H:%M:%S") if d.sent_at else "",
+                        d.answered_at.strftime("%Y-%m-%d %H:%M:%S") if d.answered_at else "",
+                        d.answer or "",
+                        d.is_correct if d.is_correct is not None else "",
+                    ]
+                    for d in daily
+                ],
+                ["ID", "User ID", "Question ID", "Subject", "Date",
+                 "Sent At", "Answered At", "Answer", "Is Correct"],
+            ).decode("utf-8"),
+        )
+
+    zip_buf.seek(0)
+    filename = f"nmt_all_logs_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
+    await c.message.answer_document(
+        BufferedInputFile(zip_buf.read(), filename=filename),
+        caption=(
+            "📦 <b>Повний архів логів</b>\n\n"
+            "• user_action_logs.csv — всі відповіді юзерів\n"
+            "• exam_results.csv — результати іспитів\n"
+            "• admin_audit_log.csv — дії адмінів\n"
+            "• daily_participation.csv — daily challenge"
+        ),
+    )
+    await repo.audit.log_action(
+        admin_id=actor.user_id,
+        action="export_all_logs_zip",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -167,29 +330,45 @@ async def on_export_stats(c: Any, b: Any, dm: DialogManager) -> None:
 
 def get_windows() -> list:
     return [
+        # ----- Main stats window -----
         Window(
             Format(
                 "📊 <b>Статистика бота</b>\n\n"
                 "👥 <b>Користувачі:</b>\n"
-                "Всього: <b>{total}</b>\n"
-                "Активні сьогодні: <b>{today}</b>\n"
-                "Активні за тиждень: <b>{week}</b>\n\n"
-                "📝 <b>Тести сьогодні:</b>\n"
-                "Симуляції: <b>{daily_sims}</b>\n"
-                "Рандом (питань): <b>{daily_rand}</b>\n\n"
+                "Всього: <b>{total}</b> | Сьогодні: <b>{today}</b> | Тиждень: <b>{week}</b>\n\n"
+                "📝 <b>Симуляції сьогодні:</b>\n"
+                "Розпочато: <b>{sim_started}</b> | Завершено: <b>{sim_completed}</b> | "
+                "Покинуто: <b>{sim_abandoned}</b>\n\n"
+                "🎯 <b>Рандом-режим сьогодні:</b> <b>{daily_rand}</b> питань\n\n"
+                "🔥 <b>Daily Challenge сьогодні:</b>\n"
+                "Надіслано: <b>{daily_sent}</b> | Відповіли: <b>{daily_answered}</b> | "
+                "Правильно: <b>{daily_correct}</b> | Участь: <b>{daily_rate}%</b>\n\n"
                 "📚 <b>По предметах (сьогодні):</b>\n{daily_breakdown}\n\n"
-                "📈 <b>UTM (Поточний тиждень):</b>\n{utm_current}\n\n"
-                "📉 <b>UTM (Минулий тиждень):</b>\n{utm_last}\n\n"
-                "📚 <b>Контент (Питань):</b>\n{content_stats}"
+                "📈 <b>UTM (поточний тиждень):</b>\n{utm_current}\n\n"
+                "📉 <b>UTM (минулий тиждень):</b>\n{utm_last}\n\n"
+                "📚 <b>Контент (питань по предметах):</b>\n{content_stats}"
             ),
             Row(
-                Button(Const("🔄 Оновити"), id="btn_refresh_stats"),
-                Button(Const("📥 Експорт CSV"), id="btn_export_stats", on_click=on_export_stats),
+                Button(Const("🔄 Оновити"), id="btn_refresh_stats",
+                       on_click=lambda c, b, d: d.switch_to(AdminSG.stats)),
+                Button(Const("📥 Результати CSV"), id="btn_export_stats", on_click=on_export_stats),
+            ),
+            Row(
+                Button(Const("📥 Логи CSV"), id="btn_export_logs", on_click=on_export_logs),
+                Button(Const("📦 Все (ZIP)"), id="btn_export_zip", on_click=on_export_all_zip),
+            ),
+            Row(
+                Button(Const("🔴 Топ складних"), id="btn_hardest",
+                       on_click=lambda c, b, d: d.switch_to(AdminSG.hardest_questions)),
+                Button(Const("🗂 Аудит"), id="btn_audit",
+                       on_click=lambda c, b, d: d.switch_to(AdminSG.audit_log)),
             ),
             Back(Const("🔙 Назад")),
             state=AdminSG.stats,
             getter=get_admin_dashboard,
         ),
+
+        # ----- Admin management window -----
         Window(
             Const("🛡 <b>Список адміністраторів:</b>\n<i>(Натисніть на ID, щоб видалити)</i>"),
             Column(
@@ -201,8 +380,32 @@ def get_windows() -> list:
             ),
             Const("\n➕ <b>Щоб додати адміна, надішліть його Telegram ID:</b>"),
             MessageInput(on_add_admin, content_types=[ContentType.TEXT]),
-            Button(Const("🔙 Назад"), id="back_menu", on_click=lambda c, b, d: d.switch_to(AdminSG.menu)),
+            Button(Const("🔙 Назад"), id="back_menu",
+                   on_click=lambda c, b, d: d.switch_to(AdminSG.menu)),
             state=AdminSG.manage_admins,
             getter=get_admins_list,
+        ),
+
+        # ----- Audit log window -----
+        Window(
+            Format(
+                "🗂 <b>Аудит лог адмінів</b> (останні 20)\n\n"
+                "{audit_text}"
+            ),
+            Back(Const("🔙 Назад")),
+            state=AdminSG.audit_log,
+            getter=get_audit_log,
+        ),
+
+        # ----- Hardest questions window -----
+        Window(
+            Format(
+                "🔴 <b>Топ-10 найскладніших питань</b>\n"
+                "<i>(по кількості неправильних відповідей)</i>\n\n"
+                "{hardest_text}"
+            ),
+            Back(Const("🔙 Назад")),
+            state=AdminSG.hardest_questions,
+            getter=get_hardest_questions_data,
         ),
     ]

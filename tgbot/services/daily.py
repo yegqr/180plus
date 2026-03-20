@@ -108,6 +108,7 @@ async def broadcast_daily_question() -> None:
 
         images = get_question_images(question)
         count = 0
+        sent_user_ids: list[int] = []
         chunks = [
             all_users_data[i : i + BROADCAST_CHUNK_SIZE]
             for i in range(0, len(all_users_data), BROADCAST_CHUNK_SIZE)
@@ -120,10 +121,31 @@ async def broadcast_daily_question() -> None:
                 ],
                 return_exceptions=True,
             )
-            count += sum(1 for r in results if r is True)
+            for user, ok in zip(chunk, results):
+                if ok is True:
+                    count += 1
+                    sent_user_ids.append(user.user_id)
             if idx < len(chunks) - 1:
                 await asyncio.sleep(BROADCAST_CHUNK_DELAY)
         logger.info(f"Daily Challenge: {count} messages sent successfully.")
+
+        # Record participations in a fresh session (background job owns its own transaction)
+        if sent_user_ids:
+            import datetime as _dt
+            today = _dt.date.today()
+            try:
+                async with session_pool() as part_session:
+                    part_repo = RequestsRepo(part_session)
+                    for uid in sent_user_ids:
+                        await part_repo.daily_participation.record_sent(
+                            user_id=uid,
+                            question_id=question.id,
+                            subject=selected_subject,
+                            date=today,
+                        )
+                    await part_session.commit()
+            except Exception as e:
+                logger.error(f"Daily: failed to record participation sends: {e}")
 
     except Exception as e:
         logger.error(f"Daily Challenge Error: {e}")
