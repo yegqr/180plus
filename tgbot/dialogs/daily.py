@@ -28,13 +28,25 @@ async def check_answer(message: Message, widget: TextInput, dialog_manager: Dial
     correct_val = str(question.correct_answer.get("answer")).strip().lower().replace(",", ".")
     user_ans = text.strip().lower().replace(",", ".")
     
-    if user_ans == correct_val:
+    is_correct = user_ans == correct_val
+    if is_correct:
         dialog_manager.dialog_data["result_text"] = "✅ Правильно! Молодець! 🔥"
-        dialog_manager.dialog_data["is_correct"] = True
     else:
         dialog_manager.dialog_data["result_text"] = f"❌ Неправильно. Правильна відповідь: {question.correct_answer.get('answer')}"
-        dialog_manager.dialog_data["is_correct"] = False
-        
+    dialog_manager.dialog_data["is_correct"] = is_correct
+
+    # Track participation for text-input answers
+    await repo.daily_participation.record_answer(
+        user_id=message.from_user.id,
+        question_id=qid,
+        answer=text,
+        is_correct=is_correct,
+    )
+    await repo.events.log_event(
+        message.from_user.id, "daily_text_answered",
+        {"question_id": qid, "is_correct": is_correct},
+    )
+
     await dialog_manager.switch_to(DailySG.result)
 
 async def to_main_menu(callback: CallbackQuery, button: Button, dialog_manager: DialogManager) -> None:

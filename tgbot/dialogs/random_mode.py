@@ -257,6 +257,14 @@ async def on_answer_text(m: Message, w: MessageInput, dm: DialogManager) -> None
 async def on_show_explanation(c: Any, b: Button, dm: DialogManager) -> None:
     current = dm.dialog_data.get("show_explanation", False)
     dm.dialog_data["show_explanation"] = not current
+    if not current:  # user is turning it ON
+        user: User = dm.middleware_data.get("user")
+        repo: RequestsRepo = dm.middleware_data.get("repo")
+        q_id = dm.dialog_data.get("current_q_id")
+        await repo.events.log_event(
+            user.user_id, "explanation_viewed",
+            {"question_id": q_id, "subject": user.selected_subject},
+        )
 
 async def on_show_materials(c: Any, b: Button, dm: DialogManager) -> None:
     current = dm.dialog_data.get("show_materials", False)

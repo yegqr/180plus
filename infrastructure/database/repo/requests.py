@@ -67,6 +67,11 @@ class RequestsRepo:
         from infrastructure.database.repo.daily_participation import DailyParticipationRepo
         return DailyParticipationRepo(self.session)
 
+    @property
+    def events(self) -> "EventRepo":
+        from infrastructure.database.repo.events import EventRepo
+        return EventRepo(self.session)
+
 
 if __name__ == "__main__":
     from infrastructure.database.setup import create_session_pool

@@ -186,6 +186,13 @@ async def save_calc_data(dialog_manager: DialogManager, update_dict: dict) -> No
             pass
 
 async def on_spec_selected(callback: CallbackQuery, widget: Any, dialog_manager: DialogManager, item_id: str) -> None:
+    user: "User" = dialog_manager.middleware_data.get("user")
+    repo = dialog_manager.middleware_data.get("repo")
+    spec = next((s for s in VagCoefZno2026 if s["code"] == item_id), None)
+    await repo.events.log_event(
+        user.user_id, "calc_spec_selected",
+        {"spec_code": item_id, "spec_name": spec["name"] if spec else item_id},
+    )
     await save_calc_data(dialog_manager, {"spec_code": item_id})
     await dialog_manager.switch_to(CalculatorSG.main)
 
@@ -386,6 +393,10 @@ async def on_kse_question_sent(message: Message, widget: Any, dialog_manager: Di
         except Exception:
             logger.warning(f"Failed to notify admin {admin_id} about KSE question", exc_info=True)
 
+    await repo.events.log_event(
+        user.user_id, "kse_question_sent",
+        {"spec": calc_data["spec_name"], "kb": calc_data["final_kb"]},
+    )
     await message.answer("✅ Дякуємо! Ваше питання надіслано координаторці KSE. Очікуйте на відповідь!")
     await dialog_manager.switch_to(CalculatorSG.main)
 

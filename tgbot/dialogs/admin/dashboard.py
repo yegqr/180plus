@@ -65,6 +65,18 @@ async def get_admin_dashboard(dialog_manager: DialogManager, **kwargs) -> dict:
     daily_activity = await repo.stats.get_daily_activity_stats()
     abandoned = await repo.stats.get_abandoned_stats()
     daily_part = await repo.daily_participation.get_stats_for_date(date.today())
+    event_counts = await repo.events.get_counts_today()
+
+    _EV = event_counts  # shorthand
+    events_text = (
+        f"🧮 Калькулятор відкрито: <b>{_EV.get('calculator_opened', 0)}</b>\n"
+        f"🎓 Спец. обрано: <b>{_EV.get('calc_spec_selected', 0)}</b>\n"
+        f"🙋 KSE питань: <b>{_EV.get('kse_question_sent', 0)}</b>\n"
+        f"💡 Пояснень переглянуто: <b>{_EV.get('explanation_viewed', 0)}</b>\n"
+        f"🔄 Предмет змінено: <b>{_EV.get('subject_changed', 0)}</b>\n"
+        f"📊 Статистику відкрито: <b>{_EV.get('stats_viewed', 0)}</b>\n"
+        f"✍️ Daily (текст) відповідей: <b>{_EV.get('daily_text_answered', 0)}</b>"
+    )
 
     return {
         "total":           stats["total"],
@@ -83,6 +95,7 @@ async def get_admin_dashboard(dialog_manager: DialogManager, **kwargs) -> dict:
         "daily_answered":  daily_part["answered"],
         "daily_correct":   daily_part["correct"],
         "daily_rate":      daily_part["rate"],
+        "events_today":    events_text,
     }
 
 
@@ -286,7 +299,23 @@ async def on_export_all_zip(c: Any, b: Any, dm: DialogManager) -> None:
             ).decode("utf-8"),
         )
 
-        # 4. daily_participation.csv
+        # 4. user_events.csv
+        user_events = await repo.events.get_all_for_export()
+        zf.writestr(
+            "user_events.csv",
+            _make_csv(
+                [
+                    [
+                        e.id, e.user_id, e.event_type, e.payload or "",
+                        e.created_at.strftime("%Y-%m-%d %H:%M:%S") if e.created_at else "",
+                    ]
+                    for e in user_events
+                ],
+                ["ID", "User ID", "Event Type", "Payload (JSON)", "Time"],
+            ).decode("utf-8"),
+        )
+
+        # 5. daily_participation.csv
         daily = await repo.daily_participation.get_all_for_export()
         zf.writestr(
             "daily_participation.csv",
@@ -315,6 +344,7 @@ async def on_export_all_zip(c: Any, b: Any, dm: DialogManager) -> None:
             "• user_action_logs.csv — всі відповіді юзерів\n"
             "• exam_results.csv — результати іспитів\n"
             "• admin_audit_log.csv — дії адмінів\n"
+            "• user_events.csv — події (калькулятор, пояснення, etc.)\n"
             "• daily_participation.csv — daily challenge"
         ),
     )
@@ -346,7 +376,8 @@ def get_windows() -> list:
                 "📚 <b>По предметах (сьогодні):</b>\n{daily_breakdown}\n\n"
                 "📈 <b>UTM (поточний тиждень):</b>\n{utm_current}\n\n"
                 "📉 <b>UTM (минулий тиждень):</b>\n{utm_last}\n\n"
-                "📚 <b>Контент (питань по предметах):</b>\n{content_stats}"
+                "📚 <b>Контент (питань по предметах):</b>\n{content_stats}\n\n"
+                "🎯 <b>Події сьогодні:</b>\n{events_today}"
             ),
             Row(
                 Button(Const("🔄 Оновити"), id="btn_refresh_stats",

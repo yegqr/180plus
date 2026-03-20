@@ -45,6 +45,9 @@ from tgbot.dialogs.calculator import CalculatorSG
 from aiogram.types import CallbackQuery
 
 async def on_calc(c: CallbackQuery, button: Button, manager: DialogManager) -> None:
+    user: User = manager.middleware_data.get("user")
+    repo: RequestsRepo = manager.middleware_data.get("repo")
+    await repo.events.log_event(user.user_id, "calculator_opened")
     await manager.start(CalculatorSG.main, mode=StartMode.NORMAL)
 
 async def on_admin_panel(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
@@ -52,6 +55,9 @@ async def on_admin_panel(callback: Any, button: Button, dialog_manager: DialogMa
 
 async def on_stats(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
     from .stats import StatsSG
+    user: User = dialog_manager.middleware_data.get("user")
+    repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
+    await repo.events.log_event(user.user_id, "stats_viewed")
     await dialog_manager.start(StatsSG.main, mode=StartMode.NORMAL)
 
 async def on_simulation(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
@@ -64,6 +70,7 @@ async def on_subject_selected(c: CallbackQuery, widget: Any, manager: DialogMana
     repo: RequestsRepo = manager.middleware_data.get("repo")
     user: User = manager.middleware_data.get("user")
 
+    await repo.events.log_event(user.user_id, "subject_changed", {"subject": item_id})
     await repo.users.update_subject(user.user_id, item_id)
     user.selected_subject = item_id
 
