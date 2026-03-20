@@ -73,9 +73,10 @@ class TopicManager:
         lock = _topic_locks.setdefault(user.user_id, asyncio.Lock())
         async with lock:
             result = await cls._ensure_topics_locked(bot, user, repo, dialog_manager, rename_if_exists)
-            # Release memory: once topics are saved, the lock is no longer needed
-            if user.settings.get("topic_ids"):
-                _topic_locks.pop(user.user_id, None)
+            # Always release memory after the lock scope — whether topics were
+            # created successfully or not. The next request will re-create the
+            # lock if needed, preventing unbounded accumulation for failed users.
+            _topic_locks.pop(user.user_id, None)
             return result
 
     @classmethod

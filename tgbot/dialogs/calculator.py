@@ -194,15 +194,30 @@ async def on_region_selected(callback: CallbackQuery, widget: Any, dialog_manage
     await dialog_manager.switch_to(CalculatorSG.main)
 
 async def on_courses_toggle(callback: CallbackQuery, button: Button, dialog_manager: DialogManager) -> None:
+    repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     user: User = dialog_manager.middleware_data.get("user")
-    current = user.settings.get("calc", {}).get("courses_active", False)
+    fresh_user = await repo.users.get_user_by_id(user.user_id)
+    fresh_settings = (fresh_user.settings if fresh_user else None) or {}
+    current = fresh_settings.get("calc", {}).get("courses_active", False)
     await save_calc_data(dialog_manager, {"courses_active": not current})
 
 async def on_reset(callback: CallbackQuery, button: Button, dialog_manager: DialogManager) -> None:
     repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
     user: User = dialog_manager.middleware_data.get("user")
-    user.settings["calc"] = {}
-    await repo.users.update_user_settings(user.user_id, user.settings)
+    redis = dialog_manager.middleware_data.get("user_cache_redis")
+
+    fresh_user = await repo.users.get_user_by_id(user.user_id)
+    settings = (fresh_user.settings if fresh_user else None) or {}
+    settings["calc"] = {}
+    await repo.users.update_user_settings(user.user_id, settings)
+    user.settings = settings
+
+    if redis is not None:
+        try:
+            await redis.delete(f"ucache:{user.user_id}")
+        except Exception:
+            pass
+
     await callback.answer("Дані скинуто")
 
 async def on_input_points(callback: CallbackQuery, button: Button, dialog_manager: DialogManager) -> None:

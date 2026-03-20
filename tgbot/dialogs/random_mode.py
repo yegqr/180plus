@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 from typing import Any
 
 from aiogram import F
@@ -145,11 +144,11 @@ async def update_question_view(dm: DialogManager, q_id: int | None = None, pick_
         dm.dialog_data["active_match_num"] = None
         dm.dialog_data["show_explanation"] = False
     elif pick_new:
-        q_ids = await repo.questions.get_questions_ids_by_subject(user.selected_subject)
-        if not q_ids:
+        question = await repo.questions.get_random_question([user.selected_subject], q_type=None)
+        if not question:
             dm.dialog_data["current_q_id"] = None
             return
-        q_id = random.choice(q_ids)
+        q_id = question.id
         dm.dialog_data["current_q_id"] = q_id
         dm.dialog_data["user_answer"] = None
         dm.dialog_data["is_correct"] = None

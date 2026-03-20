@@ -6,6 +6,15 @@ import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _get_chat_id(dm: DialogManager) -> int:
+    """Returns the chat_id safely for any event type in a dialog handler."""
+    event_chat = dm.middleware_data.get("event_chat")
+    if event_chat:
+        return event_chat.id
+    user: "User" = dm.middleware_data.get("user")
+    return user.user_id
 from aiogram import F
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import ContentType, Message
@@ -226,15 +235,7 @@ async def update_question_view(dm: DialogManager, new_index: int) -> None:
     old_album_ids = dm.dialog_data.get("album_message_ids")
     
     if old_album_ids:
-        # We need chat_id. From event? 
-        # dm.event might be CallbackQuery or Message.
-        chat_id = dm.middleware_data.get("event_chat").id # Or user.user_id
-        # Safe way:
-        if dm.event and getattr(dm.event, "chat", None):
-             chat_id = dm.event.chat.id
-        elif dm.middleware_data.get("event_from_user"):
-             chat_id = dm.middleware_data.get("event_from_user").id
-             
+        chat_id = _get_chat_id(dm)
         await AlbumManager.cleanup_album(bot, chat_id, old_album_ids)
         dm.dialog_data["album_message_ids"] = []
 
@@ -266,7 +267,7 @@ async def update_question_view(dm: DialogManager, new_index: int) -> None:
         
     if len(images) > 1:
         # Send Album
-        chat_id = dm.middleware_data.get("event_chat").id
+        chat_id = _get_chat_id(dm)
         
         # Delete previous dialog message to prevent "hanging"
         try:
@@ -340,7 +341,7 @@ async def on_finish(c: Any, b: Button, dm: DialogManager) -> None:
     bot = dm.middleware_data.get("bot")
     old_album_ids = dm.dialog_data.get("album_message_ids")
     if old_album_ids:
-        chat_id = dm.middleware_data.get("event_chat").id
+        chat_id = _get_chat_id(dm)
         await AlbumManager.cleanup_album(bot, chat_id, old_album_ids)
         dm.dialog_data["album_message_ids"] = []
 
@@ -489,7 +490,7 @@ async def update_review_view(dm: DialogManager, new_index: int) -> None:
     old_album_ids = dm.dialog_data.get("album_message_ids")
     
     if old_album_ids:
-        chat_id = dm.middleware_data.get("event_chat").id
+        chat_id = _get_chat_id(dm)
         await AlbumManager.cleanup_album(bot, chat_id, old_album_ids)
         dm.dialog_data["album_message_ids"] = []
 
@@ -515,7 +516,7 @@ async def update_review_view(dm: DialogManager, new_index: int) -> None:
     images = get_question_images(question)
 
     if len(images) > 1:
-        chat_id = dm.middleware_data.get("event_chat").id
+        chat_id = _get_chat_id(dm)
 
         # Delete previous dialog message
         try:
@@ -556,7 +557,7 @@ async def on_quit_review(c: Any, b: Button, dm: DialogManager) -> None:
     bot = dm.middleware_data.get("bot")
     old_album_ids = dm.dialog_data.get("album_message_ids")
     if old_album_ids:
-        chat_id = dm.middleware_data.get("event_chat").id
+        chat_id = _get_chat_id(dm)
         await AlbumManager.cleanup_album(bot, chat_id, old_album_ids)
         dm.dialog_data["album_message_ids"] = []
     await dm.switch_to(SimulationSG.summary)
