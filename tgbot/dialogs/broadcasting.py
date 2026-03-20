@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
-from aiogram import F
+
+from aiogram import F, exceptions
 from aiogram.types import Message, ContentType
 from aiogram_dialog import Dialog, Window, DialogManager
 from aiogram_dialog.widgets.kbd import Button, Row, Column, Select, Cancel, Back
@@ -12,6 +14,8 @@ from aiogram.fsm.state import StatesGroup, State
 
 from infrastructure.database.repo.requests import RequestsRepo
 from tgbot.services.broadcaster import broadcast
+
+logger = logging.getLogger(__name__)
 
 class BroadcastSG(StatesGroup):
     target = State()
@@ -146,6 +150,13 @@ async def start_broadcast(c: Any, b: Button, dm: DialogManager) -> None:
             error_count += 1
             logger.error(f"Broadcasting error for {user_id}: {e}")
             
+    actor = dm.middleware_data.get("user")
+    await repo.audit.log_action(
+        admin_id=actor.user_id if actor else None,
+        action="broadcast_sent",
+        target_id=target,
+        details=f"sent={count},blocked={blocked_count},errors={error_count}",
+    )
     await c.message.answer(
         f"✅ Розсилка завершена!\n"
         f"📊 Результати:\n"

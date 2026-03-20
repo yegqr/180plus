@@ -185,7 +185,8 @@ async def _handle_album_photo(
 
 
 async def _handle_single_photo(
-    message: Message, file_id: str, repo: RequestsRepo, config: Config
+    message: Message, file_id: str, repo: RequestsRepo, config: Config,
+    actor_id: int | None = None,
 ) -> None:
     """Handles a standalone (non-album) photo upload."""
     if not message.caption:
@@ -197,6 +198,11 @@ async def _handle_single_photo(
             subject=meta["subject"], year=meta["year"], session=meta["session"],
             q_number=meta["q_number"], image_file_ids=[file_id],
             q_type=meta["q_type"], correct_answer=meta["correct_answer"], weight=meta["weight"],
+        )
+        await repo.audit.log_action(
+            admin_id=actor_id, action="question_uploaded",
+            target_id=f"{meta['subject']}_{meta['year']}_{meta['session']}_Q{meta['q_number']}",
+            details="single",
         )
         status_prefix = f"✅ Питання Q#{meta['q_number']} збережено!"
         status_msg = await message.reply(status_prefix)
@@ -222,12 +228,15 @@ async def on_upload_photo(message: Message, widget: Any, dialog_manager: DialogM
     config = dialog_manager.middleware_data.get("config")
     file_id = message.photo[-1].file_id
 
+    actor = dialog_manager.middleware_data.get("user")
+    actor_id = actor.user_id if actor else None
+
     if message.media_group_id:
         await _handle_album_photo(
             message, message.media_group_id, file_id, message.message_id, repo, config
         )
     else:
-        await _handle_single_photo(message, file_id, repo, config)
+        await _handle_single_photo(message, file_id, repo, config, actor_id=actor_id)
 
 
 async def on_bulk_upload(message: Message, widget: Any, dm: DialogManager) -> None:
@@ -245,7 +254,13 @@ async def on_bulk_upload(message: Message, widget: Any, dm: DialogManager) -> No
     file_info = await bot.get_file(message.document.file_id)
     zip_bytes = await bot.download_file(file_info.file_path)
 
+    actor = dm.middleware_data.get("user")
     asyncio.create_task(service.process_zip(zip_bytes.read(), message.from_user.id))
+    await repo.audit.log_action(
+        admin_id=actor.user_id if actor else None,
+        action="bulk_upload_started",
+        details=message.document.file_name,
+    )
     await message.reply("🚀 ZIP отримано! Починаю обробку у фоновому режимі...")
     await dm.switch_to(AdminSG.menu)
 

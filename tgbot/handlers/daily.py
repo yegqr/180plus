@@ -60,6 +60,12 @@ async def on_daily_answer(call: CallbackQuery, bot: Bot, repo: RequestsRepo, dia
     # Handle "SHOW_ANSWER"
     if user_ans == "SHOW_ANSWER":
         await call.answer(f"✅ Правильна відповідь: {correct_val}", show_alert=True)
+        try:
+            await repo.events.log_event(
+                call.from_user.id, "daily_show_answer", {"question_id": qid}
+            )
+        except Exception:
+            pass
         return
 
     # Check correctness
@@ -76,13 +82,17 @@ async def on_daily_answer(call: CallbackQuery, bot: Bot, repo: RequestsRepo, dia
     else:
         await call.answer(f"❌ Неправильно. Правильна відповідь: {correct_val}", show_alert=True)
 
-    # Record participation (fire-and-forget — never breaks the handler)
+    # Record participation + event (fire-and-forget — never breaks the handler)
     try:
         await repo.daily_participation.record_answer(
             user_id=call.from_user.id,
             question_id=qid,
             answer=str(user_ans),
             is_correct=is_correct,
+        )
+        await repo.events.log_event(
+            call.from_user.id, "daily_answered",
+            {"question_id": qid, "is_correct": is_correct, "via": "button"},
         )
     except Exception as e:
         logger.warning(f"Daily: failed to record participation for user {call.from_user.id}: {e}")

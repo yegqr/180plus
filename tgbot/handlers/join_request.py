@@ -35,6 +35,9 @@ async def handle_join_request(
         source = invite_link.name or invite_link.invite_link or "unknown"
         
     await repo.stats.add_join_stat(update.from_user.id, source)
+    await repo.events.log_event(
+        update.from_user.id, "user_registered", {"source": source}
+    )
     
     # 3. Send welcome message (private chat)
     welcome_text = (

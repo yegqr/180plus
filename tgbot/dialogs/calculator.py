@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 from aiogram import F
+
+logger = logging.getLogger(__name__)
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, CallbackQuery, ContentType
 from aiogram_dialog import Dialog, Window, DialogManager, StartMode

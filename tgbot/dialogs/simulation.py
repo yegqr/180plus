@@ -204,6 +204,10 @@ async def on_session_selected(c: Any, w: Any, dm: DialogManager, item_id: str) -
         dm.dialog_data["q_ids"] = q_ids
         dm.dialog_data["start_time"] = time.time()
         dm.dialog_data["answers"] = {}
+        await repo.events.log_event(
+            user.user_id, "simulation_started",
+            {"subject": user.selected_subject, "year": year, "session": item_id, "q_count": len(q_ids)},
+        )
         # Initial View
         await update_question_view(dm, 0)
         

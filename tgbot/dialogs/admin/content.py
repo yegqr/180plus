@@ -113,10 +113,14 @@ async def on_question_selected(c: Any, w: Any, dm: DialogManager, item_id: str) 
 
 async def on_confirm_delete_session(c: Any, b: Any, dm: DialogManager) -> None:
     repo: RequestsRepo = dm.middleware_data.get("repo")
-    await repo.questions.delete_questions_by_session(
-        dm.dialog_data.get("admin_subject"),
-        dm.dialog_data.get("admin_year"),
-        dm.dialog_data.get("admin_session"),
+    actor = dm.middleware_data.get("user")
+    subj = dm.dialog_data.get("admin_subject")
+    year = dm.dialog_data.get("admin_year")
+    sess = dm.dialog_data.get("admin_session")
+    await repo.questions.delete_questions_by_session(subj, year, sess)
+    await repo.audit.log_action(
+        admin_id=actor.user_id, action="session_deleted",
+        target_id=f"{subj}_{year}_{sess}",
     )
     await c.answer("✅ Всі питання сесії видалено!", show_alert=True)
     await dm.switch_to(AdminSG.sessions)
@@ -131,6 +135,12 @@ async def on_change_session_year(message: Any, widget: Any, dm: DialogManager, d
             dm.dialog_data.get("admin_year"),
             dm.dialog_data.get("admin_session"),
             new_year=new_year,
+        )
+        actor = dm.middleware_data.get("user")
+        await repo.audit.log_action(
+            admin_id=actor.user_id, action="session_year_changed",
+            target_id=f"{dm.dialog_data.get('admin_subject')}_{dm.dialog_data.get('admin_session')}",
+            details=f"{dm.dialog_data.get('admin_year')} → {new_year}",
         )
         await message.reply(f"✅ Рік змінено на {new_year}!")
         dm.dialog_data["admin_year"] = new_year
@@ -148,6 +158,13 @@ async def on_change_session_name(message: Any, widget: Any, dm: DialogManager, d
             dm.dialog_data.get("admin_year"),
             dm.dialog_data.get("admin_session"),
             new_session=new_name,
+        )
+        actor = dm.middleware_data.get("user")
+        old_name = dm.dialog_data.get("admin_session")
+        await repo.audit.log_action(
+            admin_id=actor.user_id, action="session_name_changed",
+            target_id=f"{dm.dialog_data.get('admin_subject')}_{dm.dialog_data.get('admin_year')}",
+            details=f"{old_name} → {new_name}",
         )
         await message.reply(f"✅ Сесію перейменовано на {new_name}!")
         dm.dialog_data["admin_session"] = new_name

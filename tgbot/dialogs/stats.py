@@ -82,9 +82,9 @@ async def on_toggle_daily_sub(callback: Any, button: Button, dialog_manager: Dia
     # Middleware user object is persistent in SQLAlchemy session until commit?
     # Yes, `user` object is attached to session. Ideally we just update attribute.
     user.daily_sub = new_status
-    # Repo update does the commit.
-    
-    # Optional: Answer callback
+    await repo.events.log_event(
+        user.user_id, "daily_sub_toggled", {"new_status": new_status}
+    )
     text = "🔔 Сповіщення увімкнено!" if new_status else "🔕 Сповіщення вимкнено!"
     await callback.answer(text)
 
@@ -126,6 +126,7 @@ async def on_feedback_input(message: Message, message_input: MessageInput, dialo
         except Exception:
             pass
 
+    await repo.events.log_event(user.user_id, "feedback_submitted")
     await message.answer("✅ Дякуємо! Ваш відгук надіслано адміністрації.")
     await dialog_manager.switch_to(StatsSG.main)
 

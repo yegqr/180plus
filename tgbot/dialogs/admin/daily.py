@@ -57,15 +57,22 @@ async def get_daily_status(dialog_manager: DialogManager, **kwargs) -> dict:
 
 async def on_toggle_daily(c: Any, b: Any, dm: DialogManager) -> None:
     repo: RequestsRepo = dm.middleware_data.get("repo")
+    actor = dm.middleware_data.get("user")
     current_str = await repo.settings.get_setting("daily_enabled", "true")
     new_val = "false" if current_str.lower() == "true" else "true"
     await repo.settings.set_setting("daily_enabled", new_val)
+    await repo.audit.log_action(
+        admin_id=actor.user_id, action="daily_toggled", details=f"new_value={new_val}"
+    )
 
 
 async def on_force_daily(c: Any, b: Any, dm: DialogManager) -> None:
     bot = dm.middleware_data.get("bot")
+    repo: RequestsRepo = dm.middleware_data.get("repo")
+    actor = dm.middleware_data.get("user")
     from tgbot.services.daily import broadcast_daily_question
     await c.answer("⏳ Запускаю розсилку...", show_alert=True)
+    await repo.audit.log_action(admin_id=actor.user_id, action="daily_force_sent")
     asyncio.create_task(broadcast_daily_question(bot, bot.session_pool))
 
 

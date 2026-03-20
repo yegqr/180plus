@@ -69,13 +69,19 @@ async def get_admin_dashboard(dialog_manager: DialogManager, **kwargs) -> dict:
 
     _EV = event_counts  # shorthand
     events_text = (
+        f"🚀 Симуляцій розпочато: <b>{_EV.get('simulation_started', 0)}</b>\n"
         f"🧮 Калькулятор відкрито: <b>{_EV.get('calculator_opened', 0)}</b>\n"
         f"🎓 Спец. обрано: <b>{_EV.get('calc_spec_selected', 0)}</b>\n"
         f"🙋 KSE питань: <b>{_EV.get('kse_question_sent', 0)}</b>\n"
         f"💡 Пояснень переглянуто: <b>{_EV.get('explanation_viewed', 0)}</b>\n"
         f"🔄 Предмет змінено: <b>{_EV.get('subject_changed', 0)}</b>\n"
         f"📊 Статистику відкрито: <b>{_EV.get('stats_viewed', 0)}</b>\n"
-        f"✍️ Daily (текст) відповідей: <b>{_EV.get('daily_text_answered', 0)}</b>"
+        f"📅 Daily кнопкою: <b>{_EV.get('daily_answered', 0)}</b> | "
+        f"текстом: <b>{_EV.get('daily_text_answered', 0)}</b>\n"
+        f"👁 Daily «Показати відповідь»: <b>{_EV.get('daily_show_answer', 0)}</b>\n"
+        f"🔔 Daily підписка змінена: <b>{_EV.get('daily_sub_toggled', 0)}</b>\n"
+        f"💬 Фідбек надіслано: <b>{_EV.get('feedback_submitted', 0)}</b>\n"
+        f"🆕 Реєстрацій: <b>{_EV.get('user_registered', 0)}</b>"
     )
 
     return {

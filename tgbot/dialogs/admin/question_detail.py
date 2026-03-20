@@ -167,7 +167,12 @@ async def on_delete_q(c: Any, b: Any, dm: DialogManager) -> None:
         await AlbumManager.cleanup_album(bot, chat_id, old_album)
         dm.dialog_data["album_message_ids"] = []
 
-    await repo.questions.delete_question(dm.dialog_data["admin_q_id"])
+    q_id = dm.dialog_data["admin_q_id"]
+    actor = dm.middleware_data.get("user")
+    await repo.questions.delete_question(q_id)
+    await repo.audit.log_action(
+        admin_id=actor.user_id, action="question_deleted", target_id=str(q_id)
+    )
     await dm.switch_to(AdminSG.questions)
 
 
@@ -178,6 +183,12 @@ async def on_edit_q(c: Any, b: Any, dm: DialogManager) -> None:
         chat_id = dm.middleware_data.get("event_chat").id
         await AlbumManager.cleanup_album(bot, chat_id, old_album)
         dm.dialog_data["album_message_ids"] = []
+    repo: RequestsRepo = dm.middleware_data.get("repo")
+    actor = dm.middleware_data.get("user")
+    await repo.audit.log_action(
+        admin_id=actor.user_id, action="question_edit_started",
+        target_id=str(dm.dialog_data.get("admin_q_id")),
+    )
     await dm.switch_to(AdminSG.upload_new)
 
 
@@ -241,6 +252,10 @@ async def on_regenerate_explanation(c: Any, b: Any, dm: DialogManager) -> None:
         return
 
     await c.message.answer("⏳ Генерація пояснення запущена...")
+    actor = dm.middleware_data.get("user")
+    await repo.audit.log_action(
+        admin_id=actor.user_id, action="explanation_regen_started", target_id=str(q_id)
+    )
     bot = dm.middleware_data.get("bot")
     context_text = f"Subject: {question.subject}, Type: {question.q_type}"
     asyncio.create_task(

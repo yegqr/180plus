@@ -83,6 +83,8 @@ async def on_update_video(message: Message, widget: Any, dm: DialogManager) -> N
         return
 
     await repo.settings.set_setting("onboarding_video", file_id)
+    actor = dm.middleware_data.get("user")
+    await repo.audit.log_action(admin_id=actor.user_id, action="onboarding_video_updated")
     await message.reply(f"✅ Відео-онбординг оновлено!\nID: {file_id}")
     await dm.switch_to(AdminSG.settings)
 
@@ -108,6 +110,11 @@ async def on_approve_all(c: Any, b: Any, dm: DialogManager) -> None:
             pass
 
     await repo.join_requests.clear_all()
+    actor = dm.middleware_data.get("user")
+    await repo.audit.log_action(
+        admin_id=actor.user_id, action="join_requests_approved",
+        details=f"approved={success_count} of {len(requests)}",
+    )
     await c.message.answer(f"✅ Готово! Прийнято користувачів: {success_count}")
     await dm.switch_to(AdminSG.settings)
 
@@ -117,6 +124,8 @@ async def on_update_gemini_key(message: Message, widget: Any, dm: DialogManager)
     new_key = message.text.strip()
     if new_key:
         await repo.settings.set_setting("gemini_api_key", new_key)
+        actor = dm.middleware_data.get("user")
+        await repo.audit.log_action(admin_id=actor.user_id, action="gemini_key_updated")
         await message.reply("✅ Gemini API Key оновлено!")
     else:
         await message.reply("❌ Ключ не може бути пустим.")
@@ -124,7 +133,9 @@ async def on_update_gemini_key(message: Message, widget: Any, dm: DialogManager)
 
 async def on_delete_gemini_key(c: Any, b: Any, dm: DialogManager) -> None:
     repo: RequestsRepo = dm.middleware_data.get("repo")
+    actor = dm.middleware_data.get("user")
     await repo.settings.set_setting("gemini_api_key", "")
+    await repo.audit.log_action(admin_id=actor.user_id, action="gemini_key_deleted")
     await c.answer("✅ Ключ видалено з бази (використовується Config, якщо є).")
 
 
