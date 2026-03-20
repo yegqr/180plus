@@ -41,6 +41,35 @@ class EventRepo(BaseRepo):
         result = await self.session.execute(stmt)
         return {row.event_type: row.cnt for row in result.all()}
 
+    async def get_counts_since(
+        self,
+        since: datetime.datetime,
+        event_types: list[str] | None = None,
+    ) -> dict[str, int]:
+        """Returns count per event_type since a given datetime. Optionally filtered by event_types."""
+        stmt = (
+            select(UserEvent.event_type, func.count(UserEvent.id).label("cnt"))
+            .where(UserEvent.created_at >= since)
+            .group_by(UserEvent.event_type)
+        )
+        if event_types is not None:
+            stmt = stmt.where(UserEvent.event_type.in_(event_types))
+        result = await self.session.execute(stmt)
+        return {row.event_type: row.cnt for row in result.all()}
+
+    async def get_unique_users_since(
+        self,
+        event_type: str,
+        since: datetime.datetime,
+    ) -> int:
+        """Returns count of distinct users who fired event_type since a given datetime."""
+        stmt = (
+            select(func.count(UserEvent.user_id.distinct()))
+            .where(UserEvent.event_type == event_type, UserEvent.created_at >= since)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar() or 0
+
     async def get_all_for_export(self) -> list[UserEvent]:
         from sqlalchemy import desc
         stmt = select(UserEvent).order_by(desc(UserEvent.created_at))

@@ -28,3 +28,4 @@ class AdminSG(StatesGroup):
     edit_session_name = State()
     audit_log = State()
     hardest_questions = State()
+    calculator_stats = State()

@@ -8,7 +8,7 @@ import csv
 import io
 import logging
 import zipfile
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from aiogram.types import BufferedInputFile, ContentType
@@ -71,10 +71,7 @@ async def get_admin_dashboard(dialog_manager: DialogManager, **kwargs) -> dict:
     events_text = (
         f"🚀 Симуляцій розпочато: <b>{_EV.get('simulation_started', 0)}</b>\n"
         f"🧮 Калькулятор відкрито: <b>{_EV.get('calculator_opened', 0)}</b>\n"
-        f"🎓 Спец. обрано: <b>{_EV.get('calc_spec_selected', 0)}</b>\n"
-        f"🙋 KSE питань: <b>{_EV.get('kse_question_sent', 0)}</b>\n"
         f"💡 Пояснень переглянуто: <b>{_EV.get('explanation_viewed', 0)}</b>\n"
-        f"🔄 Предмет змінено: <b>{_EV.get('subject_changed', 0)}</b>\n"
         f"📊 Статистику відкрито: <b>{_EV.get('stats_viewed', 0)}</b>\n"
         f"📅 Daily кнопкою: <b>{_EV.get('daily_answered', 0)}</b> | "
         f"текстом: <b>{_EV.get('daily_text_answered', 0)}</b>\n"
@@ -102,6 +99,48 @@ async def get_admin_dashboard(dialog_manager: DialogManager, **kwargs) -> dict:
         "daily_correct":   daily_part["correct"],
         "daily_rate":      daily_part["rate"],
         "events_today":    events_text,
+    }
+
+
+async def get_calculator_stats(dialog_manager: DialogManager, **kwargs) -> dict:
+    repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
+
+    now = datetime.utcnow()
+    periods = {
+        "today":  datetime(now.year, now.month, now.day),
+        "week":   now - timedelta(days=7),
+        "month":  now - timedelta(days=30),
+    }
+    calc_events = ["calculator_opened", "calc_spec_selected", "kse_question_sent"]
+
+    counts: dict[str, dict[str, int]] = {}
+    for label, since in periods.items():
+        counts[label] = await repo.events.get_counts_since(since, event_types=calc_events)
+
+    counts["total"] = await repo.events.get_counts_since(
+        datetime(2000, 1, 1), event_types=calc_events
+    )
+
+    # Unique users who opened calculator per period
+    unique: dict[str, int] = {}
+    for label, since in {**periods, "total": datetime(2000, 1, 1)}.items():
+        unique[label] = await repo.events.get_unique_users_since("calculator_opened", since)
+
+    def _row(key: str) -> str:
+        t = counts["today"].get(key, 0)
+        w = counts["week"].get(key, 0)
+        m = counts["month"].get(key, 0)
+        a = counts["total"].get(key, 0)
+        return f"Сьогодні: <b>{t}</b> | 7 днів: <b>{w}</b> | Місяць: <b>{m}</b> | Всього: <b>{a}</b>"
+
+    return {
+        "row_opened":  _row("calculator_opened"),
+        "row_spec":    _row("calc_spec_selected"),
+        "row_kse":     _row("kse_question_sent"),
+        "uniq_today":  unique["today"],
+        "uniq_week":   unique["week"],
+        "uniq_month":  unique["month"],
+        "uniq_total":  unique["total"],
     }
 
 
@@ -400,6 +439,8 @@ def get_windows() -> list:
                 Button(Const("🗂 Аудит"), id="btn_audit",
                        on_click=lambda c, b, d: d.switch_to(AdminSG.audit_log)),
             ),
+            Button(Const("🧮 Калькулятор KB — деталі"), id="btn_calc_stats",
+                   on_click=lambda c, b, d: d.switch_to(AdminSG.calculator_stats)),
             Button(Const("🔙 Назад"), id="back_menu_stats",
                    on_click=lambda c, b, d: d.switch_to(AdminSG.menu)),
             state=AdminSG.stats,
@@ -447,5 +488,24 @@ def get_windows() -> list:
                    on_click=lambda c, b, d: d.switch_to(AdminSG.stats)),
             state=AdminSG.hardest_questions,
             getter=get_hardest_questions_data,
+        ),
+
+        # ----- Calculator stats window -----
+        Window(
+            Format(
+                "🧮 <b>Калькулятор КБ — статистика</b>\n\n"
+                "👤 <b>Унікальних юзерів відкрили:</b>\n"
+                "Сьогодні: <b>{uniq_today}</b> | 7 днів: <b>{uniq_week}</b> | "
+                "Місяць: <b>{uniq_month}</b> | Всього: <b>{uniq_total}</b>\n\n"
+                "🔓 <b>Відкрито (сесій):</b>\n{row_opened}\n\n"
+                "🎓 <b>Спеціальність обрано:</b>\n{row_spec}\n\n"
+                "🙋 <b>Питань до KSE надіслано:</b>\n{row_kse}"
+            ),
+            Button(Const("🔄 Оновити"), id="btn_calc_refresh",
+                   on_click=lambda c, b, d: d.switch_to(AdminSG.calculator_stats)),
+            Button(Const("🔙 Назад"), id="back_stats_calc",
+                   on_click=lambda c, b, d: d.switch_to(AdminSG.stats)),
+            state=AdminSG.calculator_stats,
+            getter=get_calculator_stats,
         ),
     ]
