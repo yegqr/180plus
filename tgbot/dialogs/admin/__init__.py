@@ -10,7 +10,7 @@ from aiogram_dialog.widgets.text import Const
 
 from tgbot.dialogs.broadcasting import BroadcastSG
 from .states import AdminSG
-from . import content, daily, dashboard, maintenance, materials, question_detail, settings, upload
+from . import content, daily, dashboard, maintenance, materials, question_detail, referrals, settings, upload
 
 admin_dialog = Dialog(
     Window(
@@ -32,6 +32,8 @@ admin_dialog = Dialog(
                    on_click=lambda c, b, d: d.switch_to(AdminSG.bulk_upload)),
             Button(Const("🚧 Технічні роботи"), id="btn_maint",
                    on_click=lambda c, b, d: d.switch_to(AdminSG.maintenance)),
+            Button(Const("🔗 Реф-посилання"), id="btn_referrals",
+                   on_click=lambda c, b, d: d.switch_to(AdminSG.referral_list)),
             Button(Const("⚙️ Налаштування"), id="btn_settings",
                    on_click=lambda c, b, d: d.switch_to(AdminSG.settings)),
         ),
@@ -46,6 +48,7 @@ admin_dialog = Dialog(
     *maintenance.get_windows(),
     *materials.get_windows(),
     *daily.get_windows(),
+    *referrals.get_windows(),
 )
 
 __all__ = ["admin_dialog", "AdminSG"]

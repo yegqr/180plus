@@ -20,25 +20,29 @@ class MainSG(StatesGroup):
 
 async def get_user_data(dialog_manager: DialogManager, **kwargs) -> dict:
     user: User = dialog_manager.middleware_data.get("user")
-    
+    repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
+
     if not user:
         start_data = dialog_manager.start_data or {}
         name = start_data.get("user_name", "User")
         is_admin = start_data.get("user_is_admin", False)
+        is_referrer = False
     else:
         name = user.full_name
         is_admin = user.is_admin
+        is_referrer = await repo.referrals.has_referral_links(user.user_id)
 
     subjects = [{"id": k, "name": v} for k, v in TopicManager.SUBJECTS.items()]
-    
+
     current_subject = user.selected_subject if user else "math"
     subject_label = TopicManager.SUBJECTS.get(current_subject, current_subject)
 
     return {
         "name": name,
         "is_admin": is_admin,
+        "is_referrer": is_referrer,
         "subjects": subjects,
-        "subject_label": subject_label
+        "subject_label": subject_label,
     }
 
 from tgbot.dialogs.calculator import CalculatorSG
@@ -49,6 +53,11 @@ async def on_calc(c: CallbackQuery, button: Button, manager: DialogManager) -> N
     repo: RequestsRepo = manager.middleware_data.get("repo")
     await repo.events.log_event(user.user_id, "calculator_opened")
     await manager.start(CalculatorSG.main, mode=StartMode.NORMAL)
+
+async def on_referrer_stats(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
+    from .referrer_stats import ReferrerStatsSG
+    await dialog_manager.start(ReferrerStatsSG.main, mode=StartMode.NORMAL)
+
 
 async def on_admin_panel(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
     await dialog_manager.start(AdminSG.menu, mode=StartMode.NORMAL)
@@ -107,6 +116,7 @@ main_menu_dialog = Dialog(
         Group(
             Button(Const("📊 Статистика"), id="btn_stats", on_click=on_stats),
             Button(Const("🧮 Розрахунок КБ"), id="btn_calc", on_click=on_calc),
+            Button(Const("📈 Мої реферали"), id="btn_referrer", on_click=on_referrer_stats, when="is_referrer"),
             Button(Const("🛠 Адмін-панель"), id="btn_admin", on_click=on_admin_panel, when="is_admin"),
             width=2,
         ),

@@ -15,7 +15,7 @@ from aiogram_dialog import setup_dialogs
 
 from infrastructure.database.setup import create_engine, create_session_pool
 from tgbot.config import load_config, Config
-from tgbot.dialogs import admin_dialog, main_menu_dialog, simulation_dialog, random_dialog, stats_dialog, broadcast_dialog
+from tgbot.dialogs import admin_dialog, main_menu_dialog, simulation_dialog, random_dialog, stats_dialog, broadcast_dialog, referrer_stats_dialog
 from tgbot.dialogs.calculator import calculator_dialog
 from tgbot.handlers import routers_list
 from tgbot.middlewares.config import ConfigMiddleware
@@ -203,6 +203,7 @@ async def main():
     from tgbot.dialogs.daily import daily_dialog
 
     dp.include_router(admin_dialog)
+    dp.include_router(referrer_stats_dialog)
     dp.include_router(main_menu_dialog)
     dp.include_router(calculator_dialog)
     dp.include_router(simulation_dialog)

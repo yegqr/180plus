@@ -72,6 +72,11 @@ class RequestsRepo:
         from infrastructure.database.repo.events import EventRepo
         return EventRepo(self.session)
 
+    @property
+    def referrals(self) -> "ReferralRepo":
+        from infrastructure.database.repo.referrals import ReferralRepo
+        return ReferralRepo(self.session)
+
 
 if __name__ == "__main__":
     from infrastructure.database.setup import create_session_pool

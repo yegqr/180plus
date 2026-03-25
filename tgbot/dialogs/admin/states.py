@@ -29,3 +29,7 @@ class AdminSG(StatesGroup):
     audit_log = State()
     hardest_questions = State()
     calculator_stats = State()
+    referral_list = State()
+    referral_create = State()
+    referral_detail = State()
+    referral_set_owner = State()

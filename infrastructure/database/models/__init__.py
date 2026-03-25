@@ -11,3 +11,4 @@ from .materials import SubjectMaterial
 from .audit import AdminAuditLog
 from .daily_participation import DailyParticipation
 from .events import UserEvent
+from .referrals import ReferralLink

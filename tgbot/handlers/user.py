@@ -1,6 +1,7 @@
 import logging
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
+from aiogram.filters.command import CommandObject
 from aiogram.types import Message, ReplyKeyboardRemove, CallbackQuery
 from aiogram_dialog import DialogManager, StartMode, ShowMode
 
@@ -13,12 +14,13 @@ user_router = Router()
 
 
 @user_router.message(CommandStart())
-async def user_start(message: Message, dialog_manager: DialogManager, user: User, repo: RequestsRepo) -> None:
-    # Check if user is NEW (DatabaseMiddleware already loaded or created the 'user' object)
-    # Actually DatabaseMiddleware always uses get_or_create_user.
-    # To check if it was REALLY new, we can check created_at or just trust repo.
-    # But for our logic, 'user' is already provided in the handler thanks to middleware.
-    
+async def user_start(
+    message: Message,
+    command: CommandObject,
+    dialog_manager: DialogManager,
+    user: User,
+    repo: RequestsRepo,
+) -> None:
     # Handle /start in a specific topic
     if message.message_thread_id:
         topic_ids = user.settings.get("topic_ids", {})
@@ -34,6 +36,17 @@ async def user_start(message: Message, dialog_manager: DialogManager, user: User
             user.selected_subject = subject # Update in-memory for this request
             await dialog_manager.start(SubjectMenuSG.menu, mode=StartMode.RESET_STACK, show_mode=ShowMode.SEND)
             return
+
+    # Track referral join for new users (/start ref_<code>)
+    is_new_user = user.settings == {}
+    if is_new_user and command.args and command.args.startswith("ref_"):
+        ref_code = command.args[4:]  # strip "ref_" prefix
+        try:
+            ref_link = await repo.referrals.get_by_code(ref_code)
+            if ref_link and ref_link.is_active:
+                await repo.stats.add_join_stat(user.user_id, f"ref_{ref_code}")
+        except Exception:
+            logger.warning("Failed to record referral join", exc_info=True)
 
     # Check if really new for onboarding
     if user.settings == {}:
