@@ -65,7 +65,7 @@ async def get_referral_detail(dialog_manager: DialogManager, **kwargs) -> dict:
         }
     s = await repo.referrals.get_stats_for_code(code)
     config = dialog_manager.middleware_data.get("config")
-    bot_username = getattr(getattr(config, "tg_bot", None), "bot_username", "YOUR_BOT")
+    bot_username = (config.tg_bot.bot_username if config else "") or "YOUR_BOT"
     return {
         "ref_code": link.code,
         "ref_name": link.name,
@@ -75,7 +75,7 @@ async def get_referral_detail(dialog_manager: DialogManager, **kwargs) -> dict:
         "ref_week": s["week"],
         "ref_month": s["month"],
         "ref_total": s["total"],
-        "ref_link": f"https://t.me/{bot_username}?start=ref_{link.code}",
+        "ref_link": f"t.me/{bot_username}?start={link.code}",
         "active_label": "🟢 Активне" if link.is_active else "🔴 Неактивне",
     }
 
@@ -130,10 +130,10 @@ async def on_create_referral(message: Any, widget: Any, dm: DialogManager) -> No
     )
 
     config = dm.middleware_data.get("config")
-    bot_username = getattr(getattr(config, "tg_bot", None), "bot_username", "YOUR_BOT")
+    bot_username = (config.tg_bot.bot_username if config else "") or "YOUR_BOT"
     await message.reply(
         f"✅ Реф-посилання створено!\n\n"
-        f"🔗 <code>https://t.me/{bot_username}?start=ref_{code}</code>\n\n"
+        f"🔗 <code>t.me/{bot_username}?start={code}</code>\n\n"
         f"Надішліть наступне реф-посилання або натисніть «Список» для перегляду."
     )
 

@@ -28,10 +28,10 @@ async def get_referrer_stats(dialog_manager: DialogManager, **kwargs) -> dict:
         s = entry["stats"]
         status = "🟢" if link.is_active else "🔴"
         config = dialog_manager.middleware_data.get("config")
-        bot_username = getattr(getattr(config, "tg_bot", None), "bot_username", "YOUR_BOT")
+        bot_username = (config.tg_bot.bot_username if config else "") or "YOUR_BOT"
         lines.append(
             f"{status} <b>{link.name}</b>\n"
-            f"🔗 <code>https://t.me/{bot_username}?start=ref_{link.code}</code>\n"
+            f"🔗 <code>t.me/{bot_username}?start={link.code}</code>\n"
             f"Сьогодні: <b>{s['today']}</b>\n"
             f"Тиждень ПН-НД: <b>{s['week']}</b>\n"
             f"Місяць: <b>{s['month']}</b>\n"

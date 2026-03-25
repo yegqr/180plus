@@ -37,14 +37,13 @@ async def user_start(
             await dialog_manager.start(SubjectMenuSG.menu, mode=StartMode.RESET_STACK, show_mode=ShowMode.SEND)
             return
 
-    # Track referral join for new users (/start ref_<code>)
+    # Track referral join for new users (/start <code>)
     is_new_user = user.settings == {}
-    if is_new_user and command.args and command.args.startswith("ref_"):
-        ref_code = command.args[4:]  # strip "ref_" prefix
+    if is_new_user and command.args:
         try:
-            ref_link = await repo.referrals.get_by_code(ref_code)
+            ref_link = await repo.referrals.get_by_code(command.args)
             if ref_link and ref_link.is_active:
-                await repo.stats.add_join_stat(user.user_id, f"ref_{ref_code}")
+                await repo.stats.add_join_stat(user.user_id, f"ref_{command.args}")
         except Exception:
             logger.warning("Failed to record referral join", exc_info=True)
 

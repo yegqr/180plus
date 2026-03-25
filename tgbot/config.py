@@ -86,6 +86,7 @@ class TgBot:
     token: str
     admin_ids: list[int]
     use_redis: bool
+    bot_username: str = ""
 
     def __post_init__(self) -> None:
         if not self.token:
@@ -101,7 +102,8 @@ class TgBot:
         token = env.str("BOT_TOKEN")
         admin_ids = env.list("ADMINS", subcast=int)
         use_redis = env.bool("USE_REDIS")
-        return TgBot(token=token, admin_ids=admin_ids, use_redis=use_redis)
+        bot_username = env.str("BOT_USERNAME", "").lstrip("@")
+        return TgBot(token=token, admin_ids=admin_ids, use_redis=use_redis, bot_username=bot_username)
 
 
 @dataclass
