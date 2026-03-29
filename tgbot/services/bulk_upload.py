@@ -20,10 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 class BulkUploadService:
-    def __init__(self, bot: Bot, repo: RequestsRepo, config: Config) -> None:
+    def __init__(self, bot: Bot, repo: RequestsRepo, config: Config, session_pool=None) -> None:
         self.bot = bot
         self.repo = repo
         self.config = config
+        self._session_pool = session_pool
         self._gemini_sem = asyncio.Semaphore(3)  # max 3 concurrent Gemini API calls
 
     # ------------------------------------------------------------------
@@ -165,18 +166,22 @@ class BulkUploadService:
             zf, item.get("images", []), admin_id, q_number
         )
 
-        await self.repo.questions.upsert_question(
-            subject=subject,
-            year=year,
-            session=session,
-            q_number=q_number,
-            image_file_ids=file_ids,
-            q_type=q_type,
-            correct_answer=correct_answer,
-            weight=len(correct_answer.get("pairs", {})) if q_type == "match" else 1,
-        )
+        async with self._session_pool() as db_session:
+            from infrastructure.database.repo.requests import RequestsRepo as _Repo
+            repo = _Repo(db_session)
+            await repo.questions.upsert_question(
+                subject=subject,
+                year=year,
+                session=session,
+                q_number=q_number,
+                image_file_ids=file_ids,
+                q_type=q_type,
+                correct_answer=correct_answer,
+                weight=len(correct_answer.get("pairs", {})) if q_type == "match" else 1,
+            )
+            db_key = await repo.settings.get_setting("gemini_api_key")
+            await db_session.commit()
 
-        db_key = await self.repo.settings.get_setting("gemini_api_key")
         api_key = db_key or self.config.misc.gemini_api_key
         if api_key and image_data_list:
             asyncio.create_task(
@@ -247,15 +252,15 @@ class BulkUploadService:
             explanation = result.get("explanation", "")
             categories = result.get("categories", [])
 
-            async with self.bot.session_pool() as session:
+            async with self._session_pool() as db_session:
                 from infrastructure.database.repo.questions import QuestionRepo
-                q_repo = QuestionRepo(session)
+                q_repo = QuestionRepo(db_session)
                 questions = await q_repo.get_questions_by_criteria(subject, year, session_name)
                 target_q = next((q for q in questions if q.q_number == q_number), None)
                 if target_q:
                     await q_repo.update_explanation(target_q.id, explanation)
                     if categories:
                         await q_repo.update_categories(target_q.id, categories)
-                    await session.commit()
+                    await db_session.commit()
         except Exception as e:
             logger.error(f"Gemini background error for Q#{q_number}: {e}")

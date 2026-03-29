@@ -249,7 +249,8 @@ async def on_bulk_upload(message: Message, widget: Any, dm: DialogManager) -> No
         return
 
     from tgbot.services.bulk_upload import BulkUploadService
-    service = BulkUploadService(bot, repo, config)
+    session_pool = dm.middleware_data.get("session_pool")
+    service = BulkUploadService(bot, repo, config, session_pool=session_pool)
 
     file_info = await bot.get_file(message.document.file_id)
     zip_bytes = await bot.download_file(file_info.file_path)
