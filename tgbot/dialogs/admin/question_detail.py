@@ -201,6 +201,7 @@ async def _regen_explanation_bg(
     q_text: str,
     api_key: str,
     subject: str,
+    session_pool: Any = None,
 ) -> None:
     """Background task: downloads images, calls Gemini, writes result directly to DB."""
     from tgbot.services.gemini import GeminiService
@@ -217,14 +218,14 @@ async def _regen_explanation_bg(
         text = result_data.get("explanation", "")
         cats = result_data.get("categories", [])
 
-        async with bot.session_pool() as session:
-            res = await session.execute(select(Question).where(Question.id == q_id))
+        async with session_pool() as db_session:
+            res = await db_session.execute(select(Question).where(Question.id == q_id))
             q = res.scalar_one_or_none()
             if q:
                 q.explanation = text
                 if cats:
                     q.categories = cats
-                await session.commit()
+                await db_session.commit()
 
         await bot.send_message(user_id, f"✅ Пояснення та категорії оновлено для Q#{q_number}!")
     except Exception as ex:
@@ -257,11 +258,13 @@ async def on_regenerate_explanation(c: Any, b: Any, dm: DialogManager) -> None:
         admin_id=actor.user_id, action="explanation_regen_started", target_id=str(q_id)
     )
     bot = dm.middleware_data.get("bot")
+    session_pool = dm.middleware_data.get("session_pool")
     context_text = f"Subject: {question.subject}, Type: {question.q_type}"
     asyncio.create_task(
         _regen_explanation_bg(
             bot, c.from_user.id, get_question_images(question),
             q_id, question.q_number, context_text, api_key, question.subject,
+            session_pool=session_pool,
         )
     )
 
