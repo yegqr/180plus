@@ -43,6 +43,13 @@ SCORING_TABLES: Dict[str, Dict[int, int]] = {
     }
 }
 
+# Aliases mapping bot subject slugs to scoring table keys
+_SUBJECT_ALIASES: Dict[str, str] = {
+    "mova": "ukr_mova",
+    "hist": "ukr_history",
+    "eng":  "inozemna_mova",
+}
+
 
 def get_scaled_score(subject: str, raw_score: float) -> float:
     """
@@ -50,8 +57,9 @@ def get_scaled_score(subject: str, raw_score: float) -> float:
     """
     if raw_score <= 0:
         return 0
-    
-    table = SCORING_TABLES.get(subject)
+
+    resolved = _SUBJECT_ALIASES.get(subject, subject)
+    table = SCORING_TABLES.get(resolved)
     if not table:
         return raw_score # TK exists as points directly or other non-lookup values
     
@@ -107,7 +115,8 @@ def get_raw_score_equivalent(subject: str, nmt_score: int) -> int:
     Returns the raw score (TB) equivalent for a given subject and NMT score.
     Uses a reverse lookup in SCORING_TABLES.
     """
-    table = SCORING_TABLES.get(subject)
+    resolved = _SUBJECT_ALIASES.get(subject, subject)
+    table = SCORING_TABLES.get(resolved)
     if not table:
         return nmt_score # Direct mapping for subjects without tables
     
