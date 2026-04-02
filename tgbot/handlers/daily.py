@@ -20,30 +20,23 @@ daily_router = Router()
 
 @daily_router.callback_query(F.data.startswith("daily:"))
 async def on_daily_answer(call: CallbackQuery, bot: Bot, repo: RequestsRepo, dialog_manager: DialogManager = None) -> None:
-    # Check for Home button first
     if call.data == "daily:menu:home":
-        # Start main menu if possible
-        # We need to import main menu state
         from tgbot.dialogs.main_menu import MainSG
         from aiogram_dialog import StartMode
-        # If dialog_manager is available (via middleware), use it. 
-        # But wait, this is a plain handler, dialog middleware IS running because we use Dispatcher.
-        # But we need to accept `dialog_manager`. Added to signature.
         await dialog_manager.start(MainSG.menu, mode=StartMode.RESET_STACK)
-        # Maybe delete the daily message to clean up? Or just leave it. User can answer later.
-        # Let's feedback
-        # await call.answer("🏠 Переходимо в меню...")
         return
 
-    # Data: daily:qid:answer
     parts = call.data.split(":")
     if len(parts) != 3:
+        await call.answer()
         return
-    
-    qid = int(parts[1])
-    user_ans = parts[2]
-    
-    # Handle Input Request
+
+    qid_str, user_ans = parts[1], parts[2]
+    if not qid_str.isdigit():
+        await call.answer()
+        return
+    qid = int(qid_str)
+
     if user_ans == "INPUT":
         from tgbot.dialogs.daily import DailySG
         from aiogram_dialog import StartMode
@@ -52,37 +45,47 @@ async def on_daily_answer(call: CallbackQuery, bot: Bot, repo: RequestsRepo, dia
 
     question = await repo.questions.get_question_by_id(qid)
     if not question:
-        await call.answer("Questions not found.", show_alert=True)
+        await call.answer("Питання не знайдено.", show_alert=True)
         return
 
     correct_val = str(question.correct_answer.get("answer"))
 
-    # Handle "SHOW_ANSWER"
     if user_ans == "SHOW_ANSWER":
         await call.answer(f"✅ Правильна відповідь: {correct_val}", show_alert=True)
         try:
-            await repo.events.log_event(
-                call.from_user.id, "daily_show_answer", {"question_id": qid}
-            )
+            await repo.events.log_event(call.from_user.id, "daily_show_answer", {"question_id": qid})
         except Exception:
             pass
         return
 
-    # Check correctness
+    if user_ans == "EXPLAIN":
+        explanation = question.explanation or ""
+        if not explanation:
+            await call.answer("Пояснення для цього завдання недоступне.", show_alert=True)
+            return
+        await call.answer()
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🏠 В головне меню", callback_data="daily:menu:home"),
+        ]])
+        expl_block = f"\n\n💡 <b>Пояснення:</b>\n{explanation}"
+        try:
+            if call.message.photo:
+                base = call.message.caption or ""
+                await call.message.edit_caption(caption=base + expl_block, reply_markup=kb)
+            else:
+                base = call.message.text or ""
+                await call.message.edit_text(base + expl_block, reply_markup=kb)
+        except Exception:
+            await call.message.answer(f"💡 <b>Пояснення:</b>\n{explanation}", reply_markup=kb)
+        return
+
+    # --- Regular answer ---
     is_correct = False
-    
     if question.q_type == "choice":
         is_correct = (str(user_ans) == correct_val)
     elif question.q_type == "short":
-        # Simplified for short, though buttons usually imply choice
         is_correct = (str(user_ans).strip() == correct_val.strip())
-        
-    if is_correct:
-        await call.answer("✅ Правильно! Молодець! 🔥", show_alert=True)
-    else:
-        await call.answer(f"❌ Неправильно. Правильна відповідь: {correct_val}", show_alert=True)
 
-    # Record participation + event (fire-and-forget — never breaks the handler)
     try:
         await repo.daily_participation.record_answer(
             user_id=call.from_user.id,
@@ -96,4 +99,26 @@ async def on_daily_answer(call: CallbackQuery, bot: Bot, repo: RequestsRepo, dia
         )
     except Exception as e:
         logger.warning(f"Daily: failed to record participation for user {call.from_user.id}: {e}")
+
+    if is_correct:
+        result_line = "✅ <b>Правильно! Молодець! 🔥</b>"
+    else:
+        result_line = f"❌ <b>Неправильно.</b>\nПравильна відповідь: <b>{correct_val}</b> | Ваша відповідь: {user_ans}"
+
+    result_row = [InlineKeyboardButton(text="🏠 В головне меню", callback_data="daily:menu:home")]
+    if question.explanation:
+        result_row.insert(0, InlineKeyboardButton(text="💡 Пояснення", callback_data=f"daily:{qid}:EXPLAIN"))
+    kb = InlineKeyboardMarkup(inline_keyboard=[result_row])
+
+    await call.answer()
+    try:
+        if call.message.photo:
+            base = call.message.caption or ""
+            await call.message.edit_caption(caption=f"{base}\n\n{result_line}", reply_markup=kb)
+        else:
+            base = call.message.text or ""
+            await call.message.edit_text(f"{base}\n\n{result_line}", reply_markup=kb)
+    except Exception as e:
+        logger.warning(f"Daily: failed to edit message for user {call.from_user.id}: {e}")
+        await call.message.answer(result_line, reply_markup=kb)
 
