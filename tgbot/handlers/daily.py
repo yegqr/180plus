@@ -101,8 +101,10 @@ async def on_daily_answer(call: CallbackQuery, bot: Bot, repo: RequestsRepo, dia
         logger.warning(f"Daily: failed to record participation for user {call.from_user.id}: {e}")
 
     if is_correct:
+        alert_text = "✅ Правильно! Молодець! 🔥"
         result_line = "✅ <b>Правильно! Молодець! 🔥</b>"
     else:
+        alert_text = f"❌ Неправильно.\nПравильна відповідь: {correct_val} | Ваша відповідь: {user_ans}"
         result_line = f"❌ <b>Неправильно.</b>\nПравильна відповідь: <b>{correct_val}</b> | Ваша відповідь: {user_ans}"
 
     result_row = [InlineKeyboardButton(text="🏠 В головне меню", callback_data="daily:menu:home")]
@@ -110,7 +112,7 @@ async def on_daily_answer(call: CallbackQuery, bot: Bot, repo: RequestsRepo, dia
         result_row.insert(0, InlineKeyboardButton(text="💡 Пояснення", callback_data=f"daily:{qid}:EXPLAIN"))
     kb = InlineKeyboardMarkup(inline_keyboard=[result_row])
 
-    await call.answer()
+    await call.answer(text=alert_text, show_alert=True)
     try:
         if call.message.photo:
             base = call.message.caption or ""
@@ -120,5 +122,4 @@ async def on_daily_answer(call: CallbackQuery, bot: Bot, repo: RequestsRepo, dia
             await call.message.edit_text(f"{base}\n\n{result_line}", reply_markup=kb)
     except Exception as e:
         logger.warning(f"Daily: failed to edit message for user {call.from_user.id}: {e}")
-        await call.message.answer(result_line, reply_markup=kb)
 
