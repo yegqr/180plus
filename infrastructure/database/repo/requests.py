@@ -63,11 +63,6 @@ class RequestsRepo:
         return AuditRepo(self.session)
 
     @property
-    def daily_participation(self) -> "DailyParticipationRepo":
-        from infrastructure.database.repo.daily_participation import DailyParticipationRepo
-        return DailyParticipationRepo(self.session)
-
-    @property
     def events(self) -> "EventRepo":
         from infrastructure.database.repo.events import EventRepo
         return EventRepo(self.session)

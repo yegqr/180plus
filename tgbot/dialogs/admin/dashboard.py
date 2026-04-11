@@ -8,7 +8,7 @@ import csv
 import io
 import logging
 import zipfile
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from aiogram.types import BufferedInputFile, ContentType
@@ -39,7 +39,7 @@ def _fmt_content(data: list) -> str:
     return "\n".join(f"• {row['subject']}: {row['count']}" for row in data)
 
 
-def _fmt_daily(activity: dict) -> str:
+def _fmt_daily_activity(activity: dict) -> str:
     subjects = set(list(activity["simulations"].keys()) + list(activity["random"].keys()))
     if not subjects:
         return "— сьогодні активності не було —"
@@ -64,7 +64,6 @@ async def get_admin_dashboard(dialog_manager: DialogManager, **kwargs) -> dict:
     content_stats = await repo.stats.get_content_stats()
     daily_activity = await repo.stats.get_daily_activity_stats()
     abandoned = await repo.stats.get_abandoned_stats()
-    daily_part = await repo.daily_participation.get_stats_for_date(date.today())
     event_counts = await repo.events.get_counts_today()
 
     _EV = event_counts  # shorthand
@@ -73,10 +72,6 @@ async def get_admin_dashboard(dialog_manager: DialogManager, **kwargs) -> dict:
         f"🧮 Калькулятор відкрито: <b>{_EV.get('calculator_opened', 0)}</b>\n"
         f"💡 Пояснень переглянуто: <b>{_EV.get('explanation_viewed', 0)}</b>\n"
         f"📊 Статистику відкрито: <b>{_EV.get('stats_viewed', 0)}</b>\n"
-        f"📅 Daily кнопкою: <b>{_EV.get('daily_answered', 0)}</b> | "
-        f"текстом: <b>{_EV.get('daily_text_answered', 0)}</b>\n"
-        f"👁 Daily «Показати відповідь»: <b>{_EV.get('daily_show_answer', 0)}</b>\n"
-        f"🔔 Daily підписка змінена: <b>{_EV.get('daily_sub_toggled', 0)}</b>\n"
         f"💬 Фідбек надіслано: <b>{_EV.get('feedback_submitted', 0)}</b>\n"
         f"🆕 Реєстрацій: <b>{_EV.get('user_registered', 0)}</b>"
     )
@@ -88,16 +83,11 @@ async def get_admin_dashboard(dialog_manager: DialogManager, **kwargs) -> dict:
         "utm_current":     _fmt_week(current_week),
         "utm_last":        _fmt_week(last_week),
         "content_stats":   _fmt_content(content_stats),
-        "daily_sims":      daily_activity["total_sims"],
         "daily_rand":      daily_activity["total_rand"],
-        "daily_breakdown": _fmt_daily(daily_activity),
+        "daily_breakdown": _fmt_daily_activity(daily_activity),
         "sim_started":     abandoned["started"],
         "sim_completed":   abandoned["completed"],
         "sim_abandoned":   abandoned["abandoned"],
-        "daily_sent":      daily_part["sent"],
-        "daily_answered":  daily_part["answered"],
-        "daily_correct":   daily_part["correct"],
-        "daily_rate":      daily_part["rate"],
         "events_today":    events_text,
     }
 
@@ -360,25 +350,6 @@ async def on_export_all_zip(c: Any, b: Any, dm: DialogManager) -> None:
             ).decode("utf-8"),
         )
 
-        # 5. daily_participation.csv
-        daily = await repo.daily_participation.get_all_for_export()
-        zf.writestr(
-            "daily_participation.csv",
-            _make_csv(
-                [
-                    [
-                        d.id, d.user_id, d.question_id, d.subject, str(d.date),
-                        d.sent_at.strftime("%Y-%m-%d %H:%M:%S") if d.sent_at else "",
-                        d.answered_at.strftime("%Y-%m-%d %H:%M:%S") if d.answered_at else "",
-                        d.answer or "",
-                        d.is_correct if d.is_correct is not None else "",
-                    ]
-                    for d in daily
-                ],
-                ["ID", "User ID", "Question ID", "Subject", "Date",
-                 "Sent At", "Answered At", "Answer", "Is Correct"],
-            ).decode("utf-8"),
-        )
 
     zip_buf.seek(0)
     filename = f"nmt_all_logs_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
@@ -389,8 +360,7 @@ async def on_export_all_zip(c: Any, b: Any, dm: DialogManager) -> None:
             "• user_action_logs.csv — всі відповіді юзерів\n"
             "• exam_results.csv — результати іспитів\n"
             "• admin_audit_log.csv — дії адмінів\n"
-            "• user_events.csv — події (калькулятор, пояснення, etc.)\n"
-            "• daily_participation.csv — daily challenge"
+            "• user_events.csv — події (калькулятор, пояснення, etc.)"
         ),
     )
     await repo.audit.log_action(
@@ -415,9 +385,6 @@ def get_windows() -> list:
                 "Розпочато: <b>{sim_started}</b> | Завершено: <b>{sim_completed}</b> | "
                 "Покинуто: <b>{sim_abandoned}</b>\n\n"
                 "🎯 <b>Рандом-режим сьогодні:</b> <b>{daily_rand}</b> питань\n\n"
-                "🔥 <b>Daily Challenge сьогодні:</b>\n"
-                "Надіслано: <b>{daily_sent}</b> | Відповіли: <b>{daily_answered}</b> | "
-                "Правильно: <b>{daily_correct}</b> | Участь: <b>{daily_rate}%</b>\n\n"
                 "📚 <b>По предметах (сьогодні):</b>\n{daily_breakdown}\n\n"
                 "📈 <b>UTM (поточний тиждень):</b>\n{utm_current}\n\n"
                 "📉 <b>UTM (минулий тиждень):</b>\n{utm_last}\n\n"

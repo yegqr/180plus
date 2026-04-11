@@ -67,14 +67,6 @@ class TestUserRepo:
         user = await repo.users.get_user_by_id(500)
         assert user.settings == {"topic_ids": {"math": 1}}
 
-    async def test_update_daily_sub(self, repo: RequestsRepo) -> None:
-        await repo.users.get_or_create_user(user_id=600, full_name="Frank", language="uk")
-        await repo.session.commit()
-        await repo.users.update_daily_sub(600, False)
-        await repo.session.commit()
-        user = await repo.users.get_user_by_id(600)
-        assert user.daily_sub is False
-
     async def test_admin_flag_from_constructor(self, repo: RequestsRepo) -> None:
         user = await repo.users.get_or_create_user(
             user_id=700, full_name="Admin", language="uk", is_admin=True
@@ -418,25 +410,6 @@ class TestStatsRepo:
         stats = await repo.stats.get_content_stats()
         assert stats == []
 
-    async def test_get_daily_activity_stats_empty(self, repo: RequestsRepo) -> None:
-        stats = await repo.stats.get_daily_activity_stats()
-        assert stats["total_sims"] == 0
-        assert stats["total_rand"] == 0
-        assert stats["simulations"] == {}
-        assert stats["random"] == {}
-
-    async def test_get_daily_activity_stats_with_data(self, repo: RequestsRepo) -> None:
-        await self._setup_user(repo)
-        await repo.results.save_result(1, "math", 2024, "s1", 10, 150, 3600)
-        await repo.results.save_random_result(1, "ukr", question_id=5, points=1)
-        await repo.session.commit()
-        stats = await repo.stats.get_daily_activity_stats()
-        assert stats["simulations"].get("math") == 1
-        assert stats["random"].get("ukr") == 1
-        assert stats["total_sims"] == 1
-        assert stats["total_rand"] == 1
-
-
 # ===========================================================================
 # UserRepo — additional coverage
 # ===========================================================================
@@ -470,11 +443,6 @@ class TestUserRepoExtra:
     async def test_get_users_for_broadcast_active_today(self, repo: RequestsRepo) -> None:
         await self._create_user(repo, 1)
         user_ids = await repo.users.get_users_for_broadcast("active_today")
-        assert 1 in user_ids
-
-    async def test_get_users_for_broadcast_daily_challenge(self, repo: RequestsRepo) -> None:
-        await self._create_user(repo, 1)
-        user_ids = await repo.users.get_users_for_broadcast("daily_challenge")
         assert 1 in user_ids
 
     async def test_update_subject(self, repo: RequestsRepo) -> None:

@@ -200,7 +200,6 @@ async def main():
 
     # Dialogs first (so they can intercept messages if active)
     from tgbot.dialogs.subject_menu import subject_menu_dialog
-    from tgbot.dialogs.daily import daily_dialog
 
     dp.include_router(admin_dialog)
     dp.include_router(referrer_stats_dialog)
@@ -211,11 +210,8 @@ async def main():
     dp.include_router(stats_dialog)
     dp.include_router(broadcast_dialog)
     dp.include_router(subject_menu_dialog)
-    dp.include_router(daily_dialog)
 
     # Then regular routers
-    from tgbot.handlers.daily import daily_router
-    dp.include_router(daily_router)
     dp.include_routers(*routers_list)
 
     engine = create_engine(config.db)

@@ -81,10 +81,6 @@ class UserRepo(BaseRepo):
 
         return {"total": total, "today": today, "week": week}
 
-    async def update_daily_sub(self, user_id: int, enabled: bool) -> None:
-        stmt = update(User).where(User.user_id == user_id).values(daily_sub=enabled)
-        await self.session.execute(stmt)
-
     async def update_user_settings(self, user_id: int, settings: dict[str, Any]) -> None:
         stmt = update(User).where(User.user_id == user_id).values(settings=settings)
         await self.session.execute(stmt)
@@ -105,13 +101,6 @@ class UserRepo(BaseRepo):
 
         if filter_type == "all":
             stmt = stmt.where(User.active == True)  # noqa: E712
-        elif filter_type == "daily_challenge":
-            week_start = today_start - timedelta(days=7)
-            stmt = stmt.where(
-                User.updated_at >= week_start,
-                User.daily_sub == True,  # noqa: E712
-                User.active == True,  # noqa: E712
-            )
         elif filter_type == "active_today":
             stmt = stmt.where(User.updated_at >= today_start, User.active == True)  # noqa: E712
         elif filter_type == "active_week":

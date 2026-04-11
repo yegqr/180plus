@@ -28,9 +28,6 @@ SUBJECT_FULL_NAMES: dict[str, str] = {
 # Subjects available as a list (for iteration)
 ALL_SUBJECTS: list[str] = list(SUBJECT_LABELS.keys())
 
-# Subjects available in daily challenge lottery
-DAILY_CHALLENGE_SUBJECTS: list[str] = ["math", "mova", "hist"]
-
 # ---------------------------------------------------------------------------
 # Answer letter alphabets
 # ---------------------------------------------------------------------------
@@ -67,17 +64,6 @@ ALBUM_WAIT_SECONDS: float = 4.0
 
 # Maximum concurrent Gemini API calls in the bulk-upload semaphore
 GEMINI_SEMAPHORE_LIMIT: int = 3
-
-# ---------------------------------------------------------------------------
-# Scheduler / daily challenge
-# ---------------------------------------------------------------------------
-
-# UTC hour when the daily lottery runs (7:00)
-DAILY_LOTTERY_HOUR: int = 7
-
-# Allowed window for scheduling a challenge broadcast (8:00–22:00)
-DAILY_WINDOW_START_HOUR: int = 8
-DAILY_WINDOW_END_HOUR: int = 22
 
 # ---------------------------------------------------------------------------
 # Random-mode history

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -122,13 +121,8 @@ async def setup_scheduler(bot: Bot, session_pool: async_sessionmaker, config: An
             logger.warning(f"Scheduler: Redis unavailable for locking ({e}), running without distributed lock.")
             _redis = None
 
-    import tgbot.services.daily as daily_module
-    daily_module._bot = bot
-    daily_module._session_pool = session_pool
-
     jobstores = _build_jobstore(config)
     scheduler = AsyncIOScheduler(jobstores=jobstores if jobstores else None)
-    daily_module._scheduler = scheduler
 
     scheduler.add_job(
         check_and_approve_requests,
@@ -136,45 +130,5 @@ async def setup_scheduler(bot: Bot, session_pool: async_sessionmaker, config: An
         seconds=60,
     )
 
-    scheduler.add_job(
-        _run_daily_lottery_with_lock,
-        "cron",
-        hour=7,
-        minute=0,
-    )
-
     scheduler.start()
     logger.info("Scheduler started! Checking join requests every 60s.")
-
-    # Run lottery on startup if not already run today
-    await _run_daily_lottery_with_lock()
-
-
-async def _run_daily_lottery_with_lock() -> None:
-    """
-    Wrapper around schedule_daily_lottery that acquires a per-day Redis lock
-    before running. This guarantees the lottery fires exactly once per day
-    even when multiple bot instances are running simultaneously (blue-green
-    deploy, temporary double-start, etc.).
-
-    The lock key is date-scoped (e.g. scheduler:daily_lottery:2025-06-01) and
-    expires after 25 hours so it is naturally cleaned up after midnight.
-    """
-    import tgbot.services.daily as daily_module
-
-    today = date.today().isoformat()
-    lock_key = f"scheduler:daily_lottery:{today}"
-
-    if not await _acquire_lock(lock_key, ttl_seconds=25 * 3600):
-        logger.info(f"Scheduler: daily lottery lock already held for {today}, skipping.")
-        return
-
-    # Note: we intentionally do NOT release this lock after success.
-    # It should remain set for the full day to prevent re-runs on restart.
-    try:
-        await daily_module.schedule_daily_lottery()
-    except Exception as e:
-        # Release on error so the lottery can be retried
-        await _release_lock(lock_key)
-        logger.error(f"Scheduler: daily lottery failed: {e}", exc_info=True)
-        raise

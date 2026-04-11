@@ -10,9 +10,6 @@ import pytest
 from tgbot.misc.constants import (
     ALBUM_WAIT_SECONDS,
     BROADCAST_SEND_DELAY,
-    DAILY_CHALLENGE_SUBJECTS,
-    DAILY_WINDOW_END_HOUR,
-    DAILY_WINDOW_START_HOUR,
     ENG_LETTERS,
     GEMINI_SEMAPHORE_LIMIT,
     JOIN_REQUEST_DELAY,
@@ -37,11 +34,6 @@ class TestSubjectConstants:
 
     def test_subject_full_names_keys(self):
         assert set(SUBJECT_FULL_NAMES.keys()) == self.EXPECTED_SUBJECTS
-
-    def test_daily_challenge_subjects_subset(self):
-        assert set(DAILY_CHALLENGE_SUBJECTS).issubset(self.EXPECTED_SUBJECTS)
-        assert len(DAILY_CHALLENGE_SUBJECTS) > 0
-
 
 class TestLetterConstants:
     def test_ukr_letters_contains_а(self):
@@ -75,13 +67,6 @@ class TestNumericConstants:
 
     def test_gemini_semaphore_limit_at_least_1(self):
         assert GEMINI_SEMAPHORE_LIMIT >= 1
-
-    def test_daily_window_order(self):
-        assert DAILY_WINDOW_START_HOUR < DAILY_WINDOW_END_HOUR
-
-    def test_daily_window_valid_hours(self):
-        assert 0 <= DAILY_WINDOW_START_HOUR < 24
-        assert 0 < DAILY_WINDOW_END_HOUR <= 24
 
     def test_question_history_limit_positive(self):
         assert QUESTION_HISTORY_LIMIT > 0

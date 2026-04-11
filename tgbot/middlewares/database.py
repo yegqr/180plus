@@ -113,7 +113,6 @@ class DatabaseMiddleware(BaseMiddleware):
                         selected_subject=d["selected_subject"],
                         settings=d["settings"],
                         active=d["active"],
-                        daily_sub=d["daily_sub"],
                     )
             except Exception:
                 pass  # cache error → fall through to DB
@@ -135,7 +134,6 @@ class DatabaseMiddleware(BaseMiddleware):
                         "selected_subject": user.selected_subject,
                         "settings": user.settings or {},
                         "active": user.active,
-                        "daily_sub": user.daily_sub,
                     }),
                     ex=_USER_CACHE_TTL,
                 )

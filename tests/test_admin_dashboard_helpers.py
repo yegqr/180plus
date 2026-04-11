@@ -1,11 +1,11 @@
 """
 Tests for tgbot/dialogs/admin/dashboard.py pure helpers:
-  _fmt_week, _fmt_content, _fmt_daily
+  _fmt_week, _fmt_content, _fmt_daily_activity
 """
 
 import pytest
 
-from tgbot.dialogs.admin.dashboard import _fmt_content, _fmt_daily, _fmt_week
+from tgbot.dialogs.admin.dashboard import _fmt_content, _fmt_daily_activity, _fmt_week
 
 
 # ===========================================================================
@@ -75,29 +75,29 @@ class TestFmtContent:
 # _fmt_daily
 # ===========================================================================
 
-class TestFmtDaily:
+class TestFmtDailyActivity:
     def _empty_activity(self) -> dict:
         return {"simulations": {}, "random": {}}
 
     def test_no_activity_returns_placeholder(self):
-        result = _fmt_daily(self._empty_activity())
+        result = _fmt_daily_activity(self._empty_activity())
         assert "активності не було" in result
 
     def test_sim_only_subject(self):
         activity = {"simulations": {"math": 5}, "random": {}}
-        result = _fmt_daily(activity)
+        result = _fmt_daily_activity(activity)
         assert "MATH" in result
         assert "5" in result
 
     def test_rand_only_subject(self):
         activity = {"simulations": {}, "random": {"hist": 3}}
-        result = _fmt_daily(activity)
+        result = _fmt_daily_activity(activity)
         assert "HIST" in result
         assert "3" in result
 
     def test_both_sim_and_rand(self):
         activity = {"simulations": {"math": 7}, "random": {"math": 4}}
-        result = _fmt_daily(activity)
+        result = _fmt_daily_activity(activity)
         assert "7" in result
         assert "4" in result
 
@@ -106,13 +106,12 @@ class TestFmtDaily:
             "simulations": {"physics": 1, "eng": 2},
             "random": {},
         }
-        result = _fmt_daily(activity)
+        result = _fmt_daily_activity(activity)
         assert result.index("ENG") < result.index("PHYSICS")
 
     def test_zero_rand_when_only_sim(self):
         activity = {"simulations": {"math": 5}, "random": {}}
-        result = _fmt_daily(activity)
-        # rand part should show 0
+        result = _fmt_daily_activity(activity)
         assert "0" in result
 
     def test_multiple_subjects_each_on_own_line(self):
@@ -120,5 +119,5 @@ class TestFmtDaily:
             "simulations": {"math": 1, "hist": 2},
             "random": {"math": 0, "hist": 0},
         }
-        result = _fmt_daily(activity)
+        result = _fmt_daily_activity(activity)
         assert len(result.split("\n")) == 2

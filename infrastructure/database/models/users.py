@@ -39,7 +39,6 @@ class User(Base, TimestampMixin, TableNameMixin):
     language: Mapped[str] = mapped_column(String(10), server_default=text("'en'"))
     selected_subject: Mapped[str] = mapped_column(String(50), server_default=text("'math'"))
     is_admin: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
-    daily_sub: Mapped[bool] = mapped_column(Boolean, server_default=true())
     settings: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'"))
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now()

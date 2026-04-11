@@ -15,7 +15,6 @@ class AdminSG(StatesGroup):
     approve_confirm_1 = State()
     approve_confirm_2 = State()
     update_video = State()
-    daily_settings = State()
     maintenance = State()
     maintenance_confirm = State()
     maintenance_finish = State()

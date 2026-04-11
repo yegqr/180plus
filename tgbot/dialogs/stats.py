@@ -64,29 +64,7 @@ async def get_stats(dialog_manager: DialogManager, **kwargs) -> dict:
     return {
         "stats_text": summary_text,
         "is_admin": user.is_admin,
-        "daily_sub_emoji": "✅" if user.daily_sub else "❌",
-        "daily_sub_text": "Сповіщення (Daily Challenge)"
     }
-
-async def on_toggle_daily_sub(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
-    repo: RequestsRepo = dialog_manager.middleware_data.get("repo")
-    user: User = dialog_manager.middleware_data.get("user")
-    
-    # Toggle
-    new_status = not user.daily_sub
-    await repo.users.update_daily_sub(user.user_id, new_status)
-    
-    # Update local user object in middleware/dialog data if needed to reflect immediately without re-fetching?
-    # Middleware usually fetches user once per update. 
-    # But since we are likely re-rendering, `get_stats` uses middleware user.
-    # Middleware user object is persistent in SQLAlchemy session until commit?
-    # Yes, `user` object is attached to session. Ideally we just update attribute.
-    user.daily_sub = new_status
-    await repo.events.log_event(
-        user.user_id, "daily_sub_toggled", {"new_status": new_status}
-    )
-    text = "🔔 Сповіщення увімкнено!" if new_status else "🔕 Сповіщення вимкнено!"
-    await callback.answer(text)
 
 async def on_feedback_button(callback: Any, button: Button, dialog_manager: DialogManager) -> None:
     await dialog_manager.switch_to(StatsSG.input_feedback)
@@ -133,7 +111,6 @@ async def on_feedback_input(message: Message, message_input: MessageInput, dialo
 stats_dialog = Dialog(
     Window(
         Format("{stats_text}"),
-        Button(Format("{daily_sub_emoji} {daily_sub_text}"), id="btn_daily_sub", on_click=on_toggle_daily_sub),
         Button(Const("✍️ Зворотній зв'язок"), id="btn_feedback", on_click=on_feedback_button),
         Cancel(Const("🏠 Меню")),
         state=StatsSG.main,
