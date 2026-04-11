@@ -51,9 +51,15 @@ _SUBJECT_ALIASES: Dict[str, str] = {
 }
 
 
-def get_scaled_score(subject: str, raw_score: float) -> float:
+def get_scaled_score(subject: str, raw_score: float, max_possible: int = 0) -> float:
     """
     Returns the scaled (100-200) score for a subject based on raw score.
+
+    If max_possible is given and is less than the table's maximum raw score,
+    the table is incomplete for this test — use the proportional formula instead:
+        scaled = (raw_score / max_possible) * 100 + 100
+    This keeps the result in the 100-200 range regardless of how many questions
+    the simulation contains.
     """
     if raw_score <= 0:
         return 0
@@ -61,26 +67,30 @@ def get_scaled_score(subject: str, raw_score: float) -> float:
     resolved = _SUBJECT_ALIASES.get(subject, subject)
     table = SCORING_TABLES.get(resolved)
     if not table:
-        return raw_score # TK exists as points directly or other non-lookup values
-    
-    # Simple lookup
+        return raw_score  # subject has no lookup table — return raw directly
+
+    table_max = max(table.keys())
+
+    # Incomplete test: proportional formula
+    if max_possible > 0 and max_possible < table_max:
+        return (raw_score / max_possible) * 100 + 100
+
+    # Full test: direct table lookup
     int_score = int(raw_score)
     if int_score in table:
         return float(table[int_score])
-    
-    # Out of range
+
     min_tb = min(table.keys())
     if int_score < min_tb:
         return 0.0
-    
-    if int_score > max(table.keys()):
+    if int_score > table_max:
         return 200.0
-    
+
     return float(table.get(int_score, 100.0))
 
 def get_nmt_score(subject: str, raw_score: float, max_possible: int = 0) -> Optional[int]:
     """Alias for get_scaled_score to maintain compatibility with simulation.py"""
-    score = get_scaled_score(subject, raw_score)
+    score = get_scaled_score(subject, raw_score, max_possible)
     return int(score) if score >= 100 else None
 
 def calculate_kb_2026(
